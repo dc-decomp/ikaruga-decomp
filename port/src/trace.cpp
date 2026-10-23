@@ -83,6 +83,8 @@ void print_stack(std::FILE* out) {
 
 const char* current() { return next ? ring[(next - 1) & (kSize - 1)].name : "?"; }
 
+const char* innermost() { return depth > 0 ? stack[depth <= 4096 ? depth - 1 : 4095] : "(none)"; }
+
 void print(std::FILE* out, size_t last) {
     const size_t n = next < last ? next : last;
     std::fprintf(out, "last %zu of %zu functions entered:\n", n, next);

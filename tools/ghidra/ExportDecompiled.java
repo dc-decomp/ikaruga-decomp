@@ -53,6 +53,7 @@ import ghidra.program.model.data.DefaultDataType;
 import ghidra.program.model.data.Undefined;
 import ghidra.program.model.data.TypeDef;
 import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.Parameter;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.listing.VariableStorage;
 import ghidra.program.model.pcode.HighFunction;
@@ -261,8 +262,10 @@ public class ExportDecompiled extends GhidraScript {
                 }
                 if ((x.equals(",") && depth == 0) || k == close) {
                     int a0 = skipBlank(t, start);
-                    if (a0 < k && arg + 1 < call.getNumInputs() && arg < callee.getParameterCount()) {
-                        boolean wantFloat = isFloatType(callee.getParameter(arg).getDataType());
+                    // Ghidra 12.2 counts parameters that getParameter does not return.
+                    Parameter param = arg < callee.getParameterCount() ? callee.getParameter(arg) : null;
+                    if (a0 < k && arg + 1 < call.getNumInputs() && param != null) {
+                        boolean wantFloat = isFloatType(param.getDataType());
                         Varnode in = call.getInput(arg + 1);
                         if (!in.isConstant() && wantFloat != isFloat(in)) {
                             String target = wantFloat ? "float" : "uint";

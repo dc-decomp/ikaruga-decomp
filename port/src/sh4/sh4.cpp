@@ -180,8 +180,16 @@ void Cpu::run_until_return() {
     }
 }
 
+// IKARUGA_SH4_PCS: the instructions run at each address of the executable, for the time each
+// routine takes itself.
+constexpr uint32_t kPcsBase = 0x8C010000u, kPcsEnd = 0x8C100000u;
+std::vector<uint64_t>* const g_pcs =
+    std::getenv("IKARUGA_SH4_PCS") ? new std::vector<uint64_t>((kPcsEnd - kPcsBase) / 2) : nullptr;
+
 void Cpu::step() {
     const uint32_t at = pc;
+    if (g_pcs && at >= kPcsBase && at < kPcsEnd)
+        ++(*g_pcs)[(at - kPcsBase) / 2];
     const uint16_t op = rd<uint16_t>(at);
     pc = at + 2;
     execute(op, at, false);
@@ -753,6 +761,15 @@ std::map<uint32_t, std::pair<uint64_t, uint64_t>>& profile() {
 const bool g_profiling = std::getenv("IKARUGA_SH4_PROFILE") != nullptr;
 
 void report_profile(std::FILE* out) {
+    if (g_pcs) {
+        if (std::FILE* f = std::fopen(std::getenv("IKARUGA_SH4_PCS"), "w")) {
+            for (size_t i = 0; i < g_pcs->size(); ++i)
+                if ((*g_pcs)[i])
+                    std::fprintf(f, "%08x %llu\n", kPcsBase + 2 * static_cast<uint32_t>(i),
+                                 static_cast<unsigned long long>((*g_pcs)[i]));
+            std::fclose(f);
+        }
+    }
     if (!g_profiling)
         return;
     std::vector<std::pair<uint32_t, std::pair<uint64_t, uint64_t>>> rows(profile().begin(), profile().end());

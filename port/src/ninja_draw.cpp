@@ -2,6 +2,7 @@
 // blocks through the store queues as its machine code, so the display lists stay the same.
 // IKARUGA_SH4_TEST captures both and compares them.
 #include "decomp.h"
+#include "diff.h"
 
 namespace game {
 namespace {
@@ -21,6 +22,7 @@ void vertex(uint32_t at, uint32_t control, uint32_t v) {
 // A strip of textured vertices for njDrawTexture2DExStart. The variable at 0x8C10B360 holds the
 // store-queue address of the next block; the last vertex's control word ends the strip.
 void njDrawTexture2DExSetData(gptr<NJS_TEXTURE_VTX> p, Int count) {
+    diff::Check check("njDrawTexture2DExSetData", 0x8C0305ACu, p, count);
     constexpr uint32_t kTable = 0x8C030604u;  // the control words and the variable's address
     const uint32_t control = guest::load<uint32_t>(kTable), last = guest::load<uint32_t>(kTable + 4);
     const uint32_t next = guest::load<uint32_t>(kTable + 8);

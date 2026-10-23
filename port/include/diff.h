@@ -37,6 +37,12 @@ void watch(uint32_t address);
 uint64_t first_call(uint32_t address);
 void note_call(uint32_t address);
 
+// IKARUGA_CALLED=FILE: each decompiled function that the run entered, with the frame of its first
+// call and its calls, written to FILE at the end. Functions on the interpreter are not in it.
+extern bool g_called;
+void note_called(uint32_t address, const char* name);
+void write_called();
+
 // IKARUGA_LOG_CALLS=ADDR[,ADDR...]: the functions whose calls are printed, at most 16.
 extern uint32_t g_log_addresses[16];
 extern int g_log_count;
@@ -58,6 +64,10 @@ inline void guard(const char* what) {
 
 // Counts a register access or a call in a shadow, and abandons a shadow that polls the hardware.
 void count_access();
+
+// A store-queue flush to the tile accelerator during a test: the machine code's in the shadow, the
+// C++'s in the body. The test compares the two, as it compares memory.
+void note_ta_flush(uint32_t destination, const uint8_t* words);
 
 // At each register access.
 inline void on_access() {
@@ -86,6 +96,8 @@ public:
     Check(const char* name, uint32_t address, const A&... args) {
         if (g_watch_count)
             note_call(address);
+        if (g_called)
+            note_called(address, name);
         if (g_log_count && logged(address)) {
             CallArgs a;
             if (arguments(a, address, args...))

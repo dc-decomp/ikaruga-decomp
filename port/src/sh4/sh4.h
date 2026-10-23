@@ -31,6 +31,7 @@ int self_test();
 void report(std::FILE* out);
 
 // IKARUGA_SH4_PROFILE: prints the instructions run per function that C++ called.
+// IKARUGA_SH4_PCS=FILE: writes the instructions run at each address, for each routine's own time.
 void report_profile(std::FILE* out);
 
 // The stack pointer (r15) of the innermost running interpreter, or ~0u if none runs.

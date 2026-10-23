@@ -9,7 +9,7 @@ region = "Japan"
 product = "T38706M"
 
 [disc]
-image = "../Ikaruga (Japan).chd"
+image = "disc/Ikaruga (Japan).chd"
 
 [binary]
 path = "extracted/fs/1ST_READ.BIN"

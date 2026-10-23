@@ -28,12 +28,11 @@ first. [docs/progress.md](docs/progress.md) records what was patched, and why.
 
 ## Steps
 
-1. Put your disc image at `Ikaruga (Japan).chd`.
-2. Extract the disc:
+1. Put your disc image at `game/disc/Ikaruga (Japan).chd`. Git ignores `game/disc/`.
+2. Extract the disc's files into `game/extracted/`, which git also ignores:
 
    ```sh
-   ../dream-recomp/.venv/bin/dcdisc new-game "Ikaruga (Japan).chd" ikaruga --dir . --title Ikaruga
-   mv ikaruga game
+   ../dream-recomp/.venv/bin/dcdisc extract "game/disc/Ikaruga (Japan).chd" game/extracted
    ```
 
 3. Analyze and decompile. This takes about seven minutes:
@@ -163,14 +162,16 @@ need no write access outside this directory.
 ## Native build
 
 The native build is the decompiled game, compiled for the host. The game code is the C++ that
-the converter writes from Ghidra's output, not dream-recomp's recompiled program. For the console's
-hardware it links dream-recomp's runtime libraries: the memory map and registers, the PowerVR, the
-DMA engines, Maple, the AICA with its ARM7, the Vulkan renderer and the audio output. These stand
-in for the hardware until the SDK's graphics and sound libraries are replaced (stage 4 of the plan
-in [docs/progress.md](docs/progress.md)).
+the converter writes from Ghidra's output, not dream-recomp's recompiled program. It draws with
+its own renderer in Metal, in an SDL3 window that also reads the keyboard and gamepads and plays
+the sound. For the rest of the console's hardware it links dream-recomp's runtime library: the
+memory map and registers, the interrupt controllers, the video timing, G2 DMA, Maple and the AICA
+with its ARM7. The PowerVR's registers and the tile accelerator's input are the port's own. These
+stand in for the hardware until the SDK's graphics and sound libraries are replaced (stage 4 of the
+plan in [docs/progress.md](docs/progress.md)).
 
-It needs the same tools as the reference build: dream-recomp at `../dream-recomp` with its
-submodules, MoltenVK, the Vulkan loader and headers, `glslc` and SDL3.
+It needs dream-recomp at `../dream-recomp` with its submodules, SDL3 and Xcode's command line tools.
+The reference build's Vulkan tools are not needed.
 
 1. Run the analysis (`tools/ghidra/analyze.sh`). It writes the C and, next to each function, the
    types and storage the converter needs.
@@ -186,7 +187,7 @@ submodules, MoltenVK, the Vulkan loader and headers, `glslc` and SDL3.
 3. Write the disc's tracks as a GDI once:
 
    ```sh
-   dcdisc chd2gdi "Ikaruga (Japan).chd" game/disc
+   dcdisc chd2gdi "game/disc/Ikaruga (Japan).chd" game/disc
    ```
 
 4. Build and run:
@@ -206,8 +207,10 @@ submodules, MoltenVK, the Vulkan loader and headers, `glslc` and SDL3.
    ```
 
    The arrow keys are the stick. Z shoots, X switches polarity, A releases the homing laser and
-   Return is Start. A gamepad works by button position. F1 or a gamepad's select button opens the
-   controller bindings, F10 shows the frame rate, F12 writes a screenshot and Escape quits.
+   Return is Start. A gamepad works by button position. F1 or a gamepad's back button opens the
+   controller bindings, which go to `~/Library/Application Support/ikaruga/ikaruga/bindings.txt`
+   and start as a copy of dream-recomp's. F10 shows the frame rate, F11 writes the last display
+   list for `render-view`, F12 writes a screenshot and Escape quits.
    `--saves DIR` names the memory card, a directory (default `saves`). The game's file in it,
    `IKARUGA_DATA.VMS`, is the image the game writes to a Visual Memory unit, in the VMS layout
    that Dreamcast save tools read.
@@ -234,7 +237,7 @@ env IKARUGA_DIFF=1 \
   --press start@600,a@700,start@1200,a@1300,start@2000,a@2100
 ```
 
-`IKARUGA_DIFF_ONLY=0x8c06a7a4` tests one function. `IKARUGA_DIFF_FROM=54500` starts the tests at
+`IKARUGA_DIFF_ONLY=0x8c06a7a4` tests one function, `IKARUGA_DIFF_ONLY=0x8c06a7a4,0x8c0196fc` two. `IKARUGA_DIFF_FROM=54500` starts the tests at
 frame 54,500, so that the functions get new tests in a later stage. [docs/progress.md](docs/progress.md) describes
 what the test can and cannot find.
 
@@ -246,6 +249,12 @@ cannot check this: it replays only in the build that made it. `--frames 18000` c
 first two milestones, in two minutes. `--pictures DIR` also takes screenshots a fixed time after
 some milestones and compares them with the set that `--keep` kept. The pictures come from the
 game, so keep `DIR` outside the repository.
+
+To check a change to the renderer in seconds, run `tools/port/render_check.py`. It draws a set
+of display lists with `render-view` and compares each picture with the one that `--keep` kept.
+It prints the mean difference and the number of pixels that differ by more than 16 in a channel.
+`--make` dumps the set first: nine display lists from the title to the name entry, into
+`runs/render-set`. Build `render-view` with `cmake --build build-port --target render-view`.
 
 These variables show what a run does:
 
@@ -261,7 +270,11 @@ These variables show what a run does:
 | `IKARUGA_UNKNOWNS=60` | Lists 60 of the registers that the C++ read without a value, instead of 30 |
 | `IKARUGA_LOG_FILES=1` | Prints each call of the native file system: opens, directories and reads, with their results |
 | `IKARUGA_UNMAPPED=1` | Prints the active functions at the first access to each address that nothing maps |
-| `IKARUGA_DUMP_TA=950,FILE` | Writes the first display list from that frame on, with video memory and the PVR registers, as the reference build's `--dump-ta` does. `dream_render_view FILE --stats` or `--polygons` reads it. |
+| `IKARUGA_DUMP_TA=950,FILE` | Writes the first display list from that frame on, with video memory and the PVR registers, as the reference build's `--dump-ta` does. `render-view FILE OUT.png` draws it, and `dream_render_view FILE --stats` or `--polygons` lists it. |
+| `IKARUGA_CALLED=FILE` | Writes each decompiled function that the run entered, with the frame of its first call and its number of calls. Functions on the interpreter are not in it. |
+| `IKARUGA_HW_USERS=FILE` | Writes the registers that each decompiled function read and wrote, and where its store-queue flushes went. Interpreted code counts for the C++ function that called it. |
+| `IKARUGA_STREAMS=FILE` | Writes a line for each render: its number, the frame, the display list's words, and hashes of the display list, of the registers the renderer reads and of video memory. Two builds that play the same game give the same lines. A change that moves the timing changes them. |
+| `IKARUGA_SH4_PCS=FILE` | Writes, at the end, the interpreted instructions run at each address of the executable: with the symbols, the time each routine takes itself |
 | `IKARUGA_SH4_PROFILE=1` | Prints, at the end, the interpreted instructions per function that the C++ called, nested calls included |
 | `IKARUGA_INTERPRET_ALL=1` | Runs all game code on the SH-4 interpreter, except the functions that the port replaces (`port/replaced.txt`). The boot is slow. |
 

@@ -16,12 +16,14 @@
 #include <vector>
 
 #include "decomp.h"
-#include "dream/audio/sink.h"
 #include "dream/runtime/aica/aica.h"
-#include "dream/runtime/pvr/core.h"
+#include "dream/runtime/maple/maple.h"
+#include "dream/runtime/mem/dc_memory.h"
 #include "dream/runtime/system.h"
 #include "hw.h"
-#include "live.h"
+#include "render/activity.h"
+#include "render/audio.h"
+#include "render/window.h"
 #include "saves.h"
 #include "sh4/sh4.h"
 
@@ -212,23 +214,25 @@ int main(int argc, char** argv) {
         return screenshots.size() == 1 ? screenshot_path : suffixed("-" + std::to_string(n));
     };
 
-    // The picture: dream-recomp's renderer draws each display list when the game starts the render,
-    // and the window shows what the console would scan out at each vertical blank.
-    std::unique_ptr<port::Live> live;
+    // The picture: the renderer draws each display list when the game starts the render, and the
+    // window shows what the console would scan out at each vertical blank.
+    std::unique_ptr<render::Window> screen;
+    auto hardware = [] {
+        return render::Hardware{hw::pvr_registers(), hw::system().memory.vram(), dream::mem::DcMemory::kVramSize};
+    };
     if (window) {
-        live = std::make_unique<port::Live>(hw::system().memory, hw::pvr());
-        if (!live->start(static_cast<unsigned>(scale), false, "Ikaruga")) {
-            std::fprintf(stderr, "window: %s\n", live->error.c_str());
+        screen = std::make_unique<render::Window>();
+        std::string error;
+        if (!screen->open(static_cast<unsigned>(scale), "Ikaruga", error)) {
+            std::fprintf(stderr, "window: %s\n", error.c_str());
             return 2;
         }
-        live->bindings_path = dream::render::vk::default_bindings_path();
-        live->load_bindings();
-        std::printf("F1 (or a pad's select button) opens the controller bindings\n");
-        hw::on_render([&live](const std::vector<uint32_t>& stream) { live->render(stream); });
+        render::keep_running(unthrottled);
+        hw::on_render([&screen, &hardware](const std::vector<uint32_t>& stream) { screen->render(stream, hardware()); });
     }
 
     // Sound: the AICA's samples go to the audio device, and to a WAV file if asked.
-    dream::audio::Sink sink;
+    render::Audio sink;
     if (window && audio && !sink.open())
         std::fprintf(stderr, "audio: %s\n", sink.error().c_str());
     std::FILE* wav = wav_path.empty() ? nullptr : std::fopen(wav_path.c_str(), "wb");
@@ -365,13 +369,50 @@ int main(int argc, char** argv) {
             }
             if (std::FILE* f = std::fopen((path + ".vram.regs").c_str(), "wb")) {
                 for (uint32_t off = 0; off < 0x2000; off += 4) {
-                    const uint32_t word = hw::pvr().reg(off);
+                    const uint32_t word = hw::pvr_registers()[off / 4];
                     std::fwrite(&word, 4, 1, f);
                 }
                 std::fclose(f);
             }
             std::printf("wrote %s: the display list of frame %llu, %zu words\n", path.c_str(),
                         static_cast<unsigned long long>(hw::frames()), stream.size());
+        });
+    }
+    // IKARUGA_STREAMS=FILE: one line for each render: its number, the frame, the display list's
+    // words, and hashes of the display list, of the registers the renderer reads and of video
+    // memory. Two builds that play the same game give the same lines. A change that moves the
+    // timing changes them: the game's animations read the time.
+    std::FILE* streams = nullptr;
+    if (const char* path = std::getenv("IKARUGA_STREAMS")) {
+        streams = std::fopen(path, "w");
+        if (!streams) {
+            std::fprintf(stderr, "IKARUGA_STREAMS: cannot write %s\n", path);
+            return 2;
+        }
+        hw::on_render([streams, &hardware, n = uint64_t{0}](const std::vector<uint32_t>& stream) mutable {
+            const auto hash = [](const void* data, size_t bytes, uint64_t h = 0xCBF29CE484222325ull) {
+                const auto* p = static_cast<const uint8_t*>(data);
+                for (size_t i = 0; i + 4 <= bytes; i += 4) {
+                    uint32_t w;
+                    std::memcpy(&w, p + i, 4);
+                    h = (h ^ w) * 0x100000001B3ull;
+                }
+                return h;
+            };
+            const render::Hardware hw = hardware();
+            // PARAM_BASE, FB_W_SOF1, the clip, the background, fog, TEXT_CONTROL, PAL_RAM_CTRL,
+            // PT_ALPHA_REF, then the fog table and the palette.
+            static constexpr uint32_t kRegisters[] = {0x020, 0x060, 0x068, 0x06C, 0x088, 0x08C, 0x0B0,
+                                                      0x0B4, 0x0B8, 0x0E4, 0x108, 0x11C};
+            uint64_t regs = 0xCBF29CE484222325ull;
+            for (uint32_t off : kRegisters) regs = hash(&hw.registers[off / 4], 4, regs ^ off);
+            regs = hash(&hw.registers[0x200 / 4], 0x200, regs);
+            regs = hash(&hw.registers[0x1000 / 4], 0x1000, regs);
+            std::fprintf(streams, "%llu %llu %zu %016llx %016llx %016llx\n", static_cast<unsigned long long>(n++),
+                         static_cast<unsigned long long>(hw::frames()), stream.size(),
+                         static_cast<unsigned long long>(hash(stream.data(), stream.size() * 4)),
+                         static_cast<unsigned long long>(regs),
+                         static_cast<unsigned long long>(hash(hw.vram, hw.vram_size)));
         });
     }
     // IKARUGA_POKE=ADDR=BYTE[,ADDR=BYTE...]: writes these bytes at each vertical blank, e.g. to keep
@@ -459,23 +500,36 @@ int main(int argc, char** argv) {
             else if (const uint8_t scene = guest::load<uint8_t>(0x8C15C560u); (scene < 6 || scene > 10) && frame % 60 < 8)
                 scripted |= frame % 120 < 60 ? kStart : kA;
         }
-        if (live) {
-            if (!live->present(frame, hw::now()))
+        auto screenshot = [&](const std::string& path) {
+            if (!screen->screenshot(hardware(), path))
+                std::fprintf(stderr, "screenshot: no rendered frame on screen\n");
+        };
+        if (screen) {
+            const auto guest_seconds = [] { return static_cast<double>(hw::now()) / hw::kCpuHz; };
+            if (!screen->present(hardware(), guest_seconds()))
                 throw StopRun{"the window was closed"};
-            if (live->menu.is_open()) {
+            if (screen->menu_open()) {
                 const auto paused_at = std::chrono::steady_clock::now();
-                while (live->menu.is_open()) {
-                    if (!live->present(frame, hw::now()))
+                while (screen->menu_open()) {
+                    if (!screen->present(hardware(), guest_seconds()))
                         throw StopRun{"the window was closed"};
                     std::this_thread::sleep_for(std::chrono::milliseconds(8));
                 }
                 paused_for += std::chrono::steady_clock::now() - paused_at;
             }
-            if (replayed.empty())
-                live->read_controls(pad);
+            if (replayed.empty()) {
+                const render::Controls c = screen->controls();
+                pad.buttons = static_cast<uint16_t>(0xFFFF & ~c.held);
+                pad.joy_x = c.stick_x;
+                pad.joy_y = c.stick_y;
+                pad.ltrigger = c.left;
+                pad.rtrigger = c.right;
+            }
+        }
+        if (screen) {
             if (is_screenshot(frame)) {
                 const std::string path = shot_path(frame);
-                live->screenshot_to(path);
+                screenshot(path);
                 std::printf("screenshot of frame %llu: %s\n", static_cast<unsigned long long>(frame), path.c_str());
             }
             for (const ShotAfter& sa : shots_after) {
@@ -485,7 +539,7 @@ int main(int argc, char** argv) {
                 char name[64];
                 std::snprintf(name, sizeof name, "-%08x+%llu", sa.address, static_cast<unsigned long long>(sa.frames));
                 const std::string path = suffixed(name);
-                live->screenshot_to(path);
+                screenshot(path);
                 std::printf("screenshot of frame %llu: %s\n", static_cast<unsigned long long>(frame), path.c_str());
             }
             if (!unthrottled) {
@@ -502,7 +556,7 @@ int main(int argc, char** argv) {
             while (replay_next < replayed.size() && replayed[replay_next].first <= frame)
                 pad = replayed[replay_next++].second;
         }
-        else if (!live)
+        else if (!screen)
             pad.buttons = 0xFFFF;
         pad.buttons = static_cast<uint16_t>(pad.buttons & ~scripted);
         if (record) {
@@ -552,10 +606,15 @@ int main(int argc, char** argv) {
         wav_header();
         std::fclose(wav);
     }
+    if (streams)
+        std::fclose(streams);
+    if (sink.is_open())
+        std::printf("sound: %llu samples, %llu dropped because the run was ahead of the device\n",
+                    static_cast<unsigned long long>(sink.pushed), static_cast<unsigned long long>(sink.dropped));
     const hw::Stats& s = hw::stats();
     std::printf("stop: %s after %llu frames\n", why.c_str(), static_cast<unsigned long long>(hw::frames()));
     std::printf("renders %llu, store-queue flushes %llu, interrupts %llu, GD-ROM sectors %llu, sound samples %llu\n",
-                static_cast<unsigned long long>(hw::pvr().renders), static_cast<unsigned long long>(s.sq_flushes),
+                static_cast<unsigned long long>(hw::renders()), static_cast<unsigned long long>(s.sq_flushes),
                 static_cast<unsigned long long>(s.interrupts), static_cast<unsigned long long>(s.gd_sectors),
                 static_cast<unsigned long long>(hw::aica().samples));
     hw::report_interrupts(stdout);
@@ -567,5 +626,7 @@ int main(int argc, char** argv) {
     cpu::report_unknowns(stdout, unknowns ? std::strtoul(unknowns, nullptr, 0) : 30);
     guest::report_missing_calls(stdout);
     diff::report(stdout);
+    diff::write_called();
+    hw::write_users();
     return 0;
 }

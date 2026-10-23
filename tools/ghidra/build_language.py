@@ -34,8 +34,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 GHIDRA = Path(os.environ.get("GHIDRA_HOME", "/opt/homebrew/opt/ghidra/libexec"))
+
+
+def ghidra_properties() -> dict[str, str]:
+    lines = (GHIDRA / "Ghidra" / "application.properties").read_text().splitlines()
+    return dict(line.split("=", 1) for line in lines if "=" in line)
+
+
+# The oldest JDK that Ghidra runs on, which Homebrew installs with it.
 JAVA_HOME = os.environ.get(
-    "JAVA_HOME", "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home")
+    "JAVA_HOME",
+    f"/opt/homebrew/opt/openjdk@{ghidra_properties()['application.java.min']}/libexec/openjdk.jdk/Contents/Home")
 NAME = "SuperH4Katana"
 
 # Little-endian SH-4 keeps a double in a register pair with the even register as the high half.
@@ -253,8 +262,7 @@ def patch(text: str, old: str, new: str, what: str) -> str:
 
 
 def settings_dir() -> tuple[Path, str]:
-    props = (GHIDRA / "Ghidra" / "application.properties").read_text().splitlines()
-    kv = dict(line.split("=", 1) for line in props if "=" in line)
+    kv = ghidra_properties()
     version, release = kv["application.version"], kv["application.release.name"]
     return ROOT / "ghidra" / "home" / "Library" / "ghidra" / f"ghidra_{version}_{release}", version
 

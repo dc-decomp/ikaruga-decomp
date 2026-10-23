@@ -113,3 +113,8 @@ FUN_8c044a5c
 
 # Ninja's drawing that sends the same store-queue blocks as its machine code (port/src/ninja_draw.cpp).
 njDrawTexture2DExSetData
+
+# Kamui natively (port/src/kamui.cpp): its channel-2 DMA, complete when it starts, and its wait for
+# the vertical blank.
+kmiLaunchQ
+kmWaitVBlank_8c037080

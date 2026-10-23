@@ -1,13 +1,16 @@
-// The console the decompiled game runs on (hw.h), built from dream-recomp's runtime. The devices
-// are wired as dream-recomp's launcher wires them (runtime/boot/boot_main.cpp). What differs is the
-// CPU: the game is C++ here, not translated code, so the port advances the clock at its safe points
-// and delivers the interrupts that the SH-4's controller selects to the game's handlers itself.
+// The console the decompiled game runs on (hw.h), built from dream-recomp's runtime, but for the
+// PowerVR, which is the port's own (pvr.h). The devices are wired as dream-recomp's launcher wires
+// them (runtime/boot/boot_main.cpp). What differs is the CPU: the game is C++ here, not translated
+// code, so the port advances the clock at its safe points and delivers the interrupts that the
+// SH-4's controller selects to the game's handlers itself.
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <map>
 #include <memory>
 #include <set>
+#include <string>
+#include <tuple>
 
 #include "dream/runtime/aica/aica.h"
 #include "dream/runtime/aica/rtc.h"
@@ -19,9 +22,11 @@
 #include "dream/runtime/system.h"
 #include "diff.h"
 #include "hw.h"
+#include "pvr.h"
 
 namespace trace {
 void print_stack(std::FILE* out);
+const char* innermost();
 }
 
 namespace hw {
@@ -42,10 +47,13 @@ struct SerialPort final : dream::mem::MmioHandler {
 
 struct Machine {
     dream::System sys;
-    dream::pvr::Core pvr{sys.sched, sys.holly, sys.spg, sys.memory};
-    // Channel-2 DMA is how Kamui sends display lists and textures.
+    Pvr pvr{sys.spg, sys.holly, sys.memory.vram(), dream::mem::DcMemory::kVramSize};
+    // SysBlock holds Holly's interrupt registers, and its channel-2 DMA needs dream-recomp's
+    // PowerVR to send to. Kamui no longer starts that DMA (kmiLaunchQ, kamui.cpp), so that PowerVR
+    // is not mapped.
+    dream::pvr::Core unused_pvr{sys.sched, sys.holly, sys.spg, sys.memory};
     dream::sh4::Dmac dmac{sys.memory};
-    dream::holly::SysBlock sysblock{dmac, sys.holly, sys.memory, pvr};
+    dream::holly::SysBlock sysblock{dmac, sys.holly, sys.memory, unused_pvr};
     dream::holly::G2Dma g2{sys.sched, sys.holly, sys.memory};
     // Registers the game programs and nothing needs to model: stored, so that the writes neither
     // fault nor get lost.
@@ -70,8 +78,8 @@ struct Machine {
     Machine() {
         guest::ram = sys.memory.ram();
         auto& mem = sys.memory;
-        mem.map_mmio(dream::pvr::Core::kRegBase, dream::pvr::Core::kRegEnd, &pvr);
-        mem.map_mmio(dream::pvr::Core::kFifoBase, dream::pvr::Core::kFifoEnd, &pvr);
+        mem.map_mmio(Pvr::kRegBase, Pvr::kRegEnd, &pvr);
+        mem.map_mmio(Pvr::kTaBase, Pvr::kTaEnd, &pvr);
         mem.map_p4(dream::sh4::Dmac::kBase, dream::sh4::Dmac::kEnd, &dmac);
         mem.map_mmio(dream::holly::SysBlock::kBase, dream::holly::SysBlock::kEnd, &sysblock);
         mem.map_mmio(0x005F6940u, 0x005F6960u, &dma_triggers);  // SB_PDTNRM .. SB_G2DTEXT
@@ -137,12 +145,42 @@ uint32_t flush_destination(uint32_t address) {
     return (mem.qacr((address >> 5) & 1) << 24) | (address & 0x03FFFFE0u);
 }
 
+// IKARUGA_HW_USERS: the registers each decompiled function reads ('r') and writes ('w'), and the
+// regions its store-queue flushes go to ('q'), by the innermost function. Interpreted code counts
+// for the C++ function that called it.
+const bool g_users = std::getenv("IKARUGA_HW_USERS") != nullptr;
+std::map<std::tuple<const char*, char, uint32_t>, uint64_t> g_uses;
+
+void note_use(char kind, uint32_t address) {
+    if (!diff::g_shadow)
+        ++g_uses[{trace::innermost(), kind, address & 0x1FFFFFFFu}];
+}
+
 }  // namespace
+
+void write_users() {
+    const char* path = std::getenv("IKARUGA_HW_USERS");
+    if (!path)
+        return;
+    std::FILE* out = std::fopen(path, "w");
+    if (!out) {
+        std::fprintf(stderr, "IKARUGA_HW_USERS: cannot write %s\n", path);
+        return;
+    }
+    std::map<std::tuple<std::string, char, uint32_t>, uint64_t> sorted;
+    for (const auto& [k, n] : g_uses) sorted[{std::get<0>(k), std::get<1>(k), std::get<2>(k)}] += n;
+    for (const auto& [k, n] : sorted)
+        std::fprintf(out, "%s %c %08x %llu\n", std::get<0>(k).c_str(), std::get<1>(k), std::get<2>(k),
+                     static_cast<unsigned long long>(n));
+    std::fclose(out);
+}
 
 // ---- memory ------------------------------------------------------------------------------------
 
 uint32_t read(uint32_t a, unsigned size) {
     diff::on_access();
+    if (g_users)
+        note_use('r', a);
     tick(100);
     auto& mem = m().sys.memory;
     return size == 1 ? mem.read8(a) : size == 2 ? mem.read16(a) : mem.read32(a);
@@ -152,6 +190,8 @@ void write(uint32_t a, uint32_t v, unsigned size) {
     diff::on_access();
     if (diff::g_shadow)
         return;
+    if (g_users)
+        note_use('w', a);
     tick(100);
     auto& mem = m().sys.memory;
     if (size == 1)
@@ -178,9 +218,13 @@ void prefetch(uint32_t address) {
         g_capture->push_back(f);
         return;
     }
+    if (dest >= 0x10000000u && dest < 0x14000000u && (diff::g_shadow || diff::g_testing))
+        diff::note_ta_flush(dest, guest::store_queues() + (address & 0x20u));
     if (diff::g_shadow && dest >= 0x10000000u && dest < 0x14000000u)
         return;  // a shadow keeps to memory: its display list would be drawn twice
     ++m().stats.sq_flushes;
+    if (g_users)
+        note_use('q', dest & 0xFF800000u);
     auto& mem = m().sys.memory;
     const uint8_t* q = guest::store_queues() + (address & 0x20u);
     for (uint32_t i = 0; i < 8; ++i) {
@@ -243,7 +287,21 @@ uint64_t frames() { return m().sys.spg.frames(); }
 Stats& stats() { return m().stats; }
 
 dream::System& system() { return m().sys; }
-dream::pvr::Core& pvr() { return m().pvr; }
+const uint32_t* pvr_registers() { return m().pvr.registers(); }
+uint64_t renders() { return m().pvr.renders; }
+
+void pvr_transfer(uint32_t destination, uint32_t source, uint32_t bytes) {
+    if (!guest::is_ram(source) || !guest::is_ram(source + bytes - 1)) {
+        std::fprintf(stderr, "pvr_transfer: %u bytes from 0x%08x, which is not main RAM\n", bytes, source);
+        std::abort();
+    }
+    // In bursts of 32 bytes, as channel 2 moves them.
+    for (uint32_t i = 0; i < bytes; i += 32) {
+        uint32_t words[8];
+        std::memcpy(words, guest::ram_at(source + i), 32);
+        m().pvr.write_burst((destination & 0x1FFFFFFFu) + i, words);
+    }
+}
 dream::aica::Aica& aica() { return m().aica; }
 dream::maple::ControllerState& pad() { return m().pad; }
 void on_vblank(std::function<void()> hook) { m().vblank_hooks.push_back(std::move(hook)); }

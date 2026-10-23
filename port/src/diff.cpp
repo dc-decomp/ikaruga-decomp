@@ -1,6 +1,7 @@
 // Differential tests of the decompiled functions against the machine code (diff.h).
 #include "diff.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <map>
@@ -77,7 +78,7 @@ struct Function {
 int g_calls = 1;  // conclusive tests per function
 const auto g_process_start = std::chrono::steady_clock::now();
 bool g_verbose = false;  // IKARUGA_DIFF_VERBOSE: each shadow with its time
-uint32_t g_only = 0;
+std::vector<uint32_t> g_only;  // IKARUGA_DIFF_ONLY: the functions to test, or all
 uint64_t g_from = 0;  // IKARUGA_DIFF_FROM: the first frame with tests
 std::unordered_map<uint32_t, Function> g_functions;
 
@@ -101,6 +102,15 @@ struct Call {
 };
 constexpr size_t kCallLog = 4096;
 std::vector<Call> g_shadow_calls, g_native_calls;
+
+struct Flush {
+    uint32_t destination;
+    uint32_t words[8];
+    bool operator==(const Flush& o) const {
+        return destination == o.destination && std::memcmp(words, o.words, 32) == 0;
+    }
+};
+std::vector<Flush> g_shadow_ta, g_native_ta;
 bool g_skip_next_run = false;  // the shadow's own entry into the interpreter
 
 bool ram_address(uint32_t v) { return (v & 0x1F000000u) == 0x0C000000u; }
@@ -214,7 +224,14 @@ struct Init {
         g_calls = std::max(1, std::atoi(v));
         g_verbose = std::getenv("IKARUGA_DIFF_VERBOSE") != nullptr;
         if (const char* o = std::getenv("IKARUGA_DIFF_ONLY"))
-            g_only = static_cast<uint32_t>(std::strtoul(o, nullptr, 0));
+            for (const char* q = o; *q;) {
+                char* end = nullptr;
+                const auto address = static_cast<uint32_t>(std::strtoul(q, &end, 0));
+                if (end == q)
+                    break;
+                g_only.push_back(address);
+                q = *end == ',' ? end + 1 : end;
+            }
         if (const char* f = std::getenv("IKARUGA_DIFF_FROM"))
             g_from = std::strtoull(f, nullptr, 0);
         g_before_ram.resize(guest::kRamSize);
@@ -304,6 +321,47 @@ const bool g_watch_init = [] {
     return true;
 }();
 
+struct Called {
+    const char* name;
+    uint64_t first, calls;
+};
+std::unordered_map<uint32_t, Called> g_called_functions;
+
+bool g_called = std::getenv("IKARUGA_CALLED") != nullptr;
+
+void note_called(uint32_t address, const char* name) {
+    // A shadow's calls do not happen: the port drops what it did.
+    if (g_shadow)
+        return;
+    ++g_called_functions.try_emplace(address, Called{name, hw::frames(), 0}).first->second.calls;
+}
+
+// One line for each function, by address: the address, the name, the first call's frame, the calls.
+void write_called() {
+    const char* path = std::getenv("IKARUGA_CALLED");
+    if (!path)
+        return;
+    std::FILE* out = std::fopen(path, "w");
+    if (!out) {
+        std::fprintf(stderr, "IKARUGA_CALLED: cannot write %s\n", path);
+        return;
+    }
+    const std::map<uint32_t, Called> sorted(g_called_functions.begin(), g_called_functions.end());
+    for (const auto& [address, c] : sorted)
+        std::fprintf(out, "%08x %s %llu %llu\n", address, c.name, static_cast<unsigned long long>(c.first),
+                     static_cast<unsigned long long>(c.calls));
+    std::fclose(out);
+}
+
+void note_ta_flush(uint32_t destination, const uint8_t* words) {
+    Flush f{destination, {}};
+    std::memcpy(f.words, words, 32);
+    if (g_shadow)
+        g_shadow_ta.push_back(f);
+    else if (g_testing)
+        g_native_ta.push_back(f);
+}
+
 void log_arguments(const char* name, const CallArgs& a) {
     std::fprintf(stderr, "call %s at frame %llu: r4 %08x r5 %08x r6 %08x r7 %08x fr4 %g fr5 %g fr6 %g fr7 %g\n", name,
                  static_cast<unsigned long long>(hw::frames()), a.r[0], a.r[1], a.r[2], a.r[3], a.fr[0], a.fr[1],
@@ -321,7 +379,7 @@ void count_access() {
 bool begin(uint32_t address) {
     if (g_active || g_shadow)
         return false;
-    if (g_only && address != g_only)
+    if (!g_only.empty() && std::find(g_only.begin(), g_only.end(), address) == g_only.end())
         return false;
     if (hw::frames() < g_from)
         return false;
@@ -342,6 +400,8 @@ bool shadow(uint32_t address, const char* name, const CallArgs& args) {
 
     g_shadow_calls.clear();
     g_native_calls.clear();
+    g_shadow_ta.clear();
+    g_native_ta.clear();
     ++g_shadow;
     g_accesses = 0;
     g_started = std::chrono::steady_clock::now();
@@ -407,7 +467,8 @@ void finish(bool unwinding) {
         std::memcmp(g_expected_ram.data() + high, guest::ram + high, guest::kRamSize - high) != 0;
     const bool vram_differs = std::memcmp(g_expected_vram.data(), guest::vram(), hw::kVramSize) != 0;
     const bool xf_differs = std::memcmp(g_expected_regs.xf, cpu::xf, sizeof cpu::xf) != 0;
-    if (!ram_differs && !vram_differs && !xf_differs)
+    const bool ta_differs = g_shadow_ta != g_native_ta;
+    if (!ram_differs && !vram_differs && !xf_differs && !ta_differs)
         return;
     // Twice: once to count, once to print.
     for (int pass = 0; pass < 2; ++pass) {
@@ -428,6 +489,23 @@ void finish(bool unwinding) {
         }
         if (vram_differs)
             compare_words("VRAM", 0xA4000000u, g_expected_vram.data(), guest::vram(), hw::kVramSize, shown, count);
+        if (ta_differs) {
+            ++count;
+            if (pass == 1) {
+                size_t i = 0;
+                while (i < g_shadow_ta.size() && i < g_native_ta.size() && g_shadow_ta[i] == g_native_ta[i]) ++i;
+                std::fprintf(stderr, "    TA: %zu flushes by the machine code, %zu by the C++, the first different #%zu\n",
+                             g_shadow_ta.size(), g_native_ta.size(), i);
+                for (const auto* list : {&g_shadow_ta, &g_native_ta})
+                    if (i < list->size()) {
+                        const Flush& f = (*list)[i];
+                        std::fprintf(stderr, "      %s %08x:", list == &g_shadow_ta ? "machine code" : "C++         ",
+                                     f.destination);
+                        for (uint32_t w : f.words) std::fprintf(stderr, " %08x", w);
+                        std::fprintf(stderr, "\n");
+                    }
+            }
+        }
         for (int i = 0; i < 16; ++i)
             if (std::memcmp(&g_expected_regs.xf[i], &cpu::xf[i], 4) != 0) {
                 ++count;

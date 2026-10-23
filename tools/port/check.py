@@ -22,8 +22,9 @@ minutes.
 
 With --pictures the run opens a window and takes a screenshot a fixed number of frames after
 some of the milestones (IKARUGA_SHOTS_AFTER), so the pictures show the same scenes when a change
-moves the timing. They go to DIR/new. When DIR/kept holds an earlier set, the check prints how much
-each picture differs from it and writes DIR/compare.png with the kept pictures beside the new ones.
+moves the timing. They go to DIR/new. When DIR/kept holds an earlier set, the check prints how many
+pixels of each picture differ from it, and how many by more than 16 in a channel. It writes
+DIR/compare.png with the kept pictures beside the new ones, at a quarter of their size.
 The pictures do not fail the check: a missing effect is for a person to see. --keep makes the new
 set the kept one. The pictures come from the game, so DIR belongs outside the repository.
 """
@@ -129,13 +130,24 @@ def compare(directory: Path) -> None:
         if not kept.exists():
             print(f"     picture {name}: nothing kept to compare with")
             continue
-        a, b = quarter(*read_ppm(kept)), quarter(*read_ppm(new))
+        a, b = read_ppm(kept), read_ppm(new)
         if a[:2] != b[:2]:
             print(f"     picture {name}: the size changed")
             continue
-        difference = sum(abs(x - y) for x, y in zip(a[2], b[2])) / len(a[2])
-        print(f"     picture {name}: differs from the kept one by {difference:.1f} of 255 on average")
-        rows.append((a, b))
+        # Every pixel counts: a missing bullet is a few pixels, which an average hides.
+        if a[2] == b[2]:
+            print(f"     picture {name}: the same as the kept one")
+        else:
+            x, y = a[2], b[2]
+            changed = over = 0
+            for k in range(0, len(x), 3):
+                d = max(abs(x[k] - y[k]), abs(x[k + 1] - y[k + 1]), abs(x[k + 2] - y[k + 2]))
+                changed += d > 0
+                over += d > 16
+            mean = sum(abs(p - q) for p, q in zip(x, y)) / len(x)
+            print(f"     picture {name}: {changed} pixels differ from the kept one, {over} by more than 16 in a "
+                  f"channel, {mean:.3f} of 255 on average")
+        rows.append((quarter(*a), quarter(*b)))
     if not rows:
         return
     w, h = rows[0][0][0], rows[0][0][1]

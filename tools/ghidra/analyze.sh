@@ -28,7 +28,9 @@ sdk_include=${SDK_INCLUDE:-$root/sdk/r2.00j/is3/0x429C5D0/Group2}
 project=$root/ghidra/project
 out=$root/ghidra/out
 
-export JAVA_HOME=${JAVA_HOME:-/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home}
+# The oldest JDK that Ghidra runs on, which Homebrew installs with it.
+java_min=$(sed -n 's/^application.java.min=//p' "$ghidra/Ghidra/application.properties")
+export JAVA_HOME=${JAVA_HOME:-/opt/homebrew/opt/openjdk@$java_min/libexec/openjdk.jdk/Contents/Home}
 export GHIDRA_HEADLESS_MAXMEM=${GHIDRA_HEADLESS_MAXMEM:-8G}
 # Ghidra keeps its settings, script bundle cache and temp files under user.home and java.io.tmpdir.
 # Keep them in the tree, so a run needs no write access outside it.
@@ -36,8 +38,11 @@ export JAVA_TOOL_OPTIONS="-Duser.home=$root/ghidra/home -Djava.io.tmpdir=$root/g
 
 [ -f "$binary" ] || { echo "no $binary: run dcdisc new-game first" >&2; exit 1; }
 mkdir -p "$project" "$out" "$root/ghidra/home" "$root/ghidra/tmp"
+# Each Ghidra version has its own settings directory, so a new version needs the language again.
+properties=$ghidra/Ghidra/application.properties
+settings=$root/ghidra/home/Library/ghidra/ghidra_$(sed -n 's/^application.version=//p' "$properties")_$(sed -n 's/^application.release.name=//p' "$properties")
 if [ "$language" = SuperH4:LE:32:katana ] \
-    && ! ls "$root"/ghidra/home/Library/ghidra/*/Extensions/SuperH4Katana/data/languages/*.sla >/dev/null 2>&1; then
+    && ! ls "$settings"/Extensions/SuperH4Katana/data/languages/*.sla >/dev/null 2>&1; then
   "$root/tools/ghidra/build_language.py"
 fi
 rm -rf "$out/c"
