@@ -12,6 +12,8 @@ Ghidra's SH-4 language gets the FPU wrong in several ways that Katana code runs 
   elements in the wrong order (see XF_LAYOUT_OLD and swap_vector_elements).
 - The calling convention offers double pairs that overlap the single-float argument registers.
 - pref is an empty instruction, so the store-queue flushes that send data to the TA disappear.
+- Writes to SR, GBR and VBR are dead to the decompiler, so interrupt masking disappears.
+- Pair moves (fmov with FPSCR.SZ set) put the odd register at the lower address.
 
 This copies the installed SuperH4 language, patches all of this, and installs the result as
 a Ghidra extension in the settings directory that tools/ghidra/analyze.sh gives Ghidra. The stock
@@ -77,6 +79,71 @@ FSCHG_NEW = """\
 PREF_OLD = ":pref N_0tjmp               is OP_0=0x0 & N_0tjmp & OP_4=0x83 { } # Empty on purpose"
 PREF_NEW = ("define pcodeop prefetch;\n"
             ":pref N_0tjmp               is OP_0=0x0 & N_0tjmp & OP_4=0x83 { prefetch(N_0tjmp); }")
+
+# fmac rounds once: the SH-4's multiply-add unit is fused. As f* and f+ the C shows a multiply and an
+# add, and a port compiled without contraction rounds twice. A call keeps the single rounding.
+FMAC_OLD = "\tFRN_0t = ( FR0_t f* FRM_0t ) f+ FRN_0t;\n"
+FMAC_NEW = "\tFRN_0t = fmac(FR0_t, FRM_0t, FRN_0t);\n"
+
+# fmov with FPSCR.SZ set moves a register pair as two 32-bit words, the even register at the lower
+# address. Ghidra stores fr pair-swapped (fr1 fr0 ...), so its 8-byte access of a pair put the odd
+# register first: Kamui's vertex writer loads a vertex into fr0-fr6 and stores the pairs, and the
+# TA got every word pair swapped. Each pair access swaps the two words. It stays one 8-byte access:
+# fmov.s shares its constructor with the pair form, and the analyzer follows both forms. A second
+# 4-byte read at address + 4 makes it put data on the code after every float constant pool.
+def swapped(v: str) -> str:
+    return f"(({v} << 32) | ({v} >> 32))"
+
+
+PAIR_MOVES = {
+    "XDRN = *:8 M_0t_at1;": f"local pair:8 = *:8 M_0t_at1; XDRN = {swapped('pair')};",
+    "*:8 N_0t_at1 = XDRM;": f"*:8 N_0t_at1 = {swapped('XDRM')};",
+    "XDRN = *:8 M_0t_at;": f"local pair:8 = *:8 M_0t_at; XDRN = {swapped('pair')};",
+    "*:8 N_0t_at_neg = XDRM;": f"*:8 N_0t_at_neg = {swapped('XDRM')};",
+    "XDRN = *:8 (r0 + M_0t_at_with_r0);": f"local pair:8 = *:8 (r0 + M_0t_at_with_r0); XDRN = {swapped('pair')};",
+    "*:8 (r0 + N_0t_at_with_r0) = XDRM;": f"*:8 (r0 + N_0t_at_with_r0) = {swapped('XDRM')};",
+}
+
+
+def pair_moves_in_order(sinc: str) -> str:
+    for old, new in PAIR_MOVES.items():
+        if sinc.count(old) != 1:
+            sys.exit(f"pair move {old!r}: expected exactly one; review the patch")
+        sinc = sinc.replace(old, new)
+    return sinc
+
+
+# ldc to SR, GBR and VBR write registers that nothing in the function reads afterwards, so the
+# decompiler drops the writes: the C loses every change of the interrupt mask and of GBR. A call
+# for each keeps them, so a port can follow them. lds to FPSCR is the same: syHwInitSub sets
+# rounding to nearest, and without the call the C kept the boot default, rounding toward zero.
+CONTROL_LOADS = {
+    ":ldc N_0t_sr ": ("setSR", "N_0t_sr"),
+    ":ldc N_0t_gbr ": ("setGBR", "N_0t_gbr"),
+    ":ldc N_0t_vbr ": ("setVBR", "N_0t_vbr"),
+    ":ldc.l N_0t_sr1 ": ("setSR", "*:4 N_0t_sr1"),
+    ":ldc.l N_0t_gbr1 ": ("setGBR", "*:4 N_0t_gbr1"),
+    ":ldc.l N_0t_vbr1 ": ("setVBR", "*:4 N_0t_vbr1"),
+    ":lds N_0t_fpscr ": ("setFPSCR", "N_0t_fpscr"),
+    ":lds.l N_0t_fpscr1 ": ("setFPSCR", "*:4 N_0t_fpscr1"),
+}
+
+
+def visible_control_loads(sinc: str) -> str:
+    # The language file must start with its endianness; declare the ops before the first ldc.
+    first = sinc.index(":ldc N_0t_sr ")
+    out = (sinc[:first] + "define pcodeop setSR;\ndefine pcodeop setGBR;\ndefine pcodeop setVBR;\n"
+           + "define pcodeop setFPSCR;\n"
+           + sinc[first:])
+    for head, (op, value) in CONTROL_LOADS.items():
+        i = out.find(head)
+        if i < 0 or out.count(head) != 1:
+            sys.exit(f"{head.strip()}: expected exactly one constructor; review the patch")
+        brace = out.index("{", i) + 1
+        # Read the value before the constructor's own p-code changes the register it comes from.
+        out = out[:brace] + f"\n\t{op}({value});" + out[brace:]
+    return out
+
 
 FRCHG_OLD = """\
 	if (!( $(FPSCR_PR) == 0 )) goto <skip>;
@@ -154,6 +221,30 @@ CSPEC_DOUBLE_ARGS_OLD = "".join(f"""\
 CSPEC_DOUBLE_ARGS_NEW = ""
 
 
+# SHC knows which registers a function in the same unit leaves alone, and a caller keeps a value in
+# r1, r2 or r3 across a call to such a function. The default convention kills r0-r3 at every call,
+# so the decompiler reads such a value as extraout_r3, which the C++ does not have. These models
+# keep some of r1-r3 across a call; tools/ghidra/KeptRegisters.java gives them to the functions
+# that need them.
+KEPT_REGISTERS = ("r1", "r2", "r3")
+
+
+def kept_register_models(cspec: str) -> str:
+    start, end = cspec.index("<default_proto>"), cspec.index("</default_proto>")
+    proto = cspec[start + len("<default_proto>"):end]
+    models = []
+    for mask in range(1, 1 << len(KEPT_REGISTERS)):
+        kept = [r for i, r in enumerate(KEPT_REGISTERS) if mask & (1 << i)]
+        m = proto.replace('name="__stdcall"', f'name="__keep_{"".join(kept)}"')
+        for r in kept:
+            m = patch(m, f'         <register name="{r}"/>\n', "", f"killedbycall {r}")
+        m = patch(m, "      </unaffected>",
+                  "".join(f'        <register name="{r}"/>\n' for r in kept) + "      </unaffected>",
+                  "unaffected")
+        models.append(m.strip("\n"))
+    tail = end + len("</default_proto>")
+    return cspec[:tail] + "\n" + "\n".join(models) + cspec[tail:]
+
 def patch(text: str, old: str, new: str, what: str) -> str:
     if text.count(old) != 1:
         sys.exit(f"{what}: expected exactly one match in the installed SuperH4 language, "
@@ -181,6 +272,10 @@ def main() -> int:
     sinc = patch(sinc, FRCHG_OLD, FRCHG_NEW, "frchg")
     sinc = patch(sinc, XF_LAYOUT_OLD, XF_LAYOUT_NEW, "xf layout")
     sinc = patch(sinc, PREF_OLD, PREF_NEW, "pref")
+    sinc = patch(sinc, FMAC_OLD, FMAC_NEW, "fmac")
+    sinc = patch(sinc, ":fmac FR0_t,", "define pcodeop fmac;\n:fmac FR0_t,", "fmac op")
+    sinc = visible_control_loads(sinc)
+    sinc = pair_moves_in_order(sinc)
     sinc = swap_vector_elements(sinc)
     (lang / "SuperH4_katana.sinc").write_text(sinc)
 
@@ -196,6 +291,8 @@ def main() -> int:
         patch(patch(patch(cspec, CSPEC_UNAFFECTED_OLD, CSPEC_UNAFFECTED_NEW, "cspec unaffected"),
                     CSPEC_GLOBAL_OLD, CSPEC_GLOBAL_NEW, "cspec global"),
               CSPEC_DOUBLE_ARGS_OLD, CSPEC_DOUBLE_ARGS_NEW, "cspec double arguments"))
+    (lang / "SuperH4_katana.cspec").write_text(
+        kept_register_models((lang / "SuperH4_katana.cspec").read_text()))
     (lang / "SuperH4_katana.ldefs").write_text(LDEFS)
 
     (ext / "Module.manifest").write_text("")

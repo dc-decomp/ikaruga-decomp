@@ -62,7 +62,7 @@ public class ExportTypes extends GhidraScript {
                 DataType ft = f.getDataType();
                 b.append(first ? "" : ", ")
                     .append("{\"name\": ").append(q(f.getFieldName() == null
-                        ? "field_0x" + Integer.toHexString(f.getOffset()) : f.getFieldName()))
+                        ? f.getDefaultFieldName() : f.getFieldName()))
                     .append(", \"offset\": ").append(f.getOffset())
                     .append(", \"size\": ").append(f.getLength())
                     .append(", \"type\": ").append(q(ft.getDisplayName()));

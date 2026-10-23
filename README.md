@@ -36,11 +36,16 @@ first. [docs/progress.md](docs/progress.md) records what was patched, and why.
    mv ikaruga game
    ```
 
-3. Analyze and decompile. This takes about two minutes:
+3. Analyze and decompile. This takes about seven minutes:
 
    ```sh
    tools/ghidra/analyze.sh
    ```
+
+   After a change to `tools/ghidra/ExportDecompiled.java` only, `tools/ghidra/analyze.sh --export`
+   writes the C again from the analyzed project in about 20 seconds. To check such a change on a
+   few functions first, set `EXPORT_ONLY=8c0a9664,...` and run the script into another directory,
+   because `--export` deletes `ghidra/out/c` first.
 
 The first run also builds and installs the patched language. To rebuild it by hand, run
 `tools/ghidra/build_language.py`. The names of the SDK functions that the game links are committed
@@ -155,6 +160,113 @@ have the same address, the `user` row wins.
 Ghidra keeps its settings, its cache and the patched language under `ghidra/home/`. The scripts
 need no write access outside this directory.
 
+## Native build
+
+The native build is the decompiled game, compiled for the host. The game code is the C++ that
+the converter writes from Ghidra's output, not dream-recomp's recompiled program. For the console's
+hardware it links dream-recomp's runtime libraries: the memory map and registers, the PowerVR, the
+DMA engines, Maple, the AICA with its ARM7, the Vulkan renderer and the audio output. These stand
+in for the hardware until the SDK's graphics and sound libraries are replaced (stage 4 of the plan
+in [docs/progress.md](docs/progress.md)).
+
+It needs the same tools as the reference build: dream-recomp at `../dream-recomp` with its
+submodules, MoltenVK, the Vulkan loader and headers, `glslc` and SDL3.
+
+1. Run the analysis (`tools/ghidra/analyze.sh`). It writes the C and, next to each function, the
+   types and storage the converter needs.
+2. Convert the C to C++:
+
+   ```sh
+   tools/decomp/convert.py
+   ```
+
+   This writes `decomp/gen/`. The code there is derived from the game: `decomp/` is ignored here
+   and is a local repository of its own. Put a hand-corrected function into `decomp/fix/`, and the
+   converter does not generate it again.
+3. Write the disc's tracks as a GDI once:
+
+   ```sh
+   dcdisc chd2gdi "Ikaruga (Japan).chd" game/disc
+   ```
+
+4. Build and run:
+
+   ```sh
+   cmake -S port -B build-port -DCMAKE_BUILD_TYPE=Release
+   cmake --build build-port
+   build-port/ikaruga --frames 600
+   ```
+
+5. Play in a window, with the boot ROM for the system font:
+
+   ```sh
+   build-port/ikaruga \
+     --window \
+     --bios bios/dc_bios.bin
+   ```
+
+   The arrow keys are the stick. Z shoots, X switches polarity, A releases the homing laser and
+   Return is Start. A gamepad works by button position. F1 or a gamepad's select button opens the
+   controller bindings, F10 shows the frame rate, F12 writes a screenshot and Escape quits.
+   `--saves DIR` names the memory card, a directory (default `saves`). The game's file in it,
+   `IKARUGA_DATA.VMS`, is the image the game writes to a Visual Memory unit, in the VMS layout
+   that Dreamcast save tools read.
+
+Options for checking a change without playing:
+
+| Option | Effect |
+| --- | --- |
+| `--press start@600,a@700-900` | Holds a button for 8 frames from each frame given, or over a range of frames |
+| `--screenshot-at 300,650` | Writes the frames drawn at these frames, as `ikaruga-300.ppm` and so on |
+| `--wav FILE` | Records the sound |
+| `--unthrottled` | Runs the window as fast as the host can |
+| `--record-input FILE` | Writes the controller state of each frame where it changes |
+| `--replay-input FILE` | Plays a recording back instead of the controls. A recording only replays the same game in the build that made it: the reference build's frames do not line up with the port's. |
+
+To find a function whose C++ does not do what the game's machine code does, run with
+`IKARUGA_DIFF=1`. The port then runs the first call of each function twice, once as machine code
+on its SH-4 interpreter and once as C++, and prints each function whose results differ:
+
+```sh
+env IKARUGA_DIFF=1 \
+  build-port/ikaruga \
+  --frames 3200 \
+  --press start@600,a@700,start@1200,a@1300,start@2000,a@2100
+```
+
+`IKARUGA_DIFF_ONLY=0x8c06a7a4` tests one function. `IKARUGA_DIFF_FROM=54500` starts the tests at
+frame 54,500, so that the functions get new tests in a later stage. [docs/progress.md](docs/progress.md) describes
+what the test can and cannot find.
+
+To check that a change still lets the game reach its milestones, whatever it does to the timing, run
+`tools/port/check.py`. It plays the whole game with `IKARUGA_AUTOPLAY`, in about 15 minutes. It
+fails when a stage, a boss or the ending does not come by a given frame, when the game stops
+drawing, or when a boot does not get back what the game saved after the ending. A recording
+cannot check this: it replays only in the build that made it. `--frames 18000` checks only the
+first two milestones, in two minutes. `--pictures DIR` also takes screenshots a fixed time after
+some milestones and compares them with the set that `--keep` kept. The pictures come from the
+game, so keep `DIR` outside the repository.
+
+These variables show what a run does:
+
+| Variable | Effect |
+| --- | --- |
+| `IKARUGA_PEEK=0x8c1d1428:4,...` | Prints the value at each address when it changes, at each vertical blank. The size is 1 (the default), 2 or 4. A 4-byte value is printed as a float too. |
+| `IKARUGA_POKE=0x8c1d13ec=2,...` | Writes these bytes at each vertical blank. `0x8c1d13ec=2` keeps two lives, so a replay gets past a section where the recording died. |
+| `IKARUGA_DUMP=2400,3000,DIR` | Writes main RAM at these frames, as `DIR/ram-2400.bin` and so on |
+| `IKARUGA_LOG_CALLS=0x8c079384,...` | Prints each call of these functions, with the frame and the argument registers |
+| `IKARUGA_WATCH_CALLS=0x8c08fe04,...` | Prints the frame of the first call of each of these functions, also with `IKARUGA_INTERPRET_ALL` |
+| `IKARUGA_SHOTS_AFTER=0x8c08fe04+600,...` | In a window, takes a screenshot 600 frames after the first call of the function. The file is the `--screenshot-path` with `-8c08fe04+600` added to its name. |
+| `IKARUGA_AUTOPLAY=1` | Plays without a recording: Start and A in turns through the menus, then A held with two lives kept |
+| `IKARUGA_UNKNOWNS=60` | Lists 60 of the registers that the C++ read without a value, instead of 30 |
+| `IKARUGA_LOG_FILES=1` | Prints each call of the native file system: opens, directories and reads, with their results |
+| `IKARUGA_UNMAPPED=1` | Prints the active functions at the first access to each address that nothing maps |
+| `IKARUGA_DUMP_TA=950,FILE` | Writes the first display list from that frame on, with video memory and the PVR registers, as the reference build's `--dump-ta` does. `dream_render_view FILE --stats` or `--polygons` reads it. |
+| `IKARUGA_SH4_PROFILE=1` | Prints, at the end, the interpreted instructions per function that the C++ called, nested calls included |
+| `IKARUGA_INTERPRET_ALL=1` | Runs all game code on the SH-4 interpreter, except the functions that the port replaces (`port/replaced.txt`). The boot is slow. |
+
+How the runtime works is in [docs/progress.md](docs/progress.md), "Native port".
+
 ## Layout
 
 | Path | Content |
@@ -162,6 +274,9 @@ need no write access outside this directory.
 | `tools/ghidra/` | The analysis pipeline and the language patch |
 | `tools/symbols/` | The tools for the symbol tables |
 | `tools/reference/` | The regression gate for the reference build |
+| `tools/decomp/` | The converter from Ghidra's C to C++ for the native build |
+| `port/` | The native build's runtime: guest memory, the machine built from dream-recomp's runtime, the boot ROM's services, the SH-4 interpreter for Ninja, the differential tests |
+| `decomp/` | The converted game code. Generated, ignored here, a local repository of its own. |
 | `game/` | The title config and the symbol tables. `game/extracted/` holds the disc files. |
 | `docs/progress.md` | Status, decisions, measurements and the plan |
 | `CMakeLists.txt` | Builds dream-recomp and the recompiled title, for the reference build |

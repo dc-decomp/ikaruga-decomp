@@ -1,0 +1,115 @@
+# Functions of the game that the port implements natively; tools/decomp/convert.py does not
+# generate them. One C++ identifier per line.
+
+# The wrappers around the boot ROM's vectors (port/src/bios.cpp); the drive's are not reached.
+syBtFntGet
+syBtFntChkSmph
+syBtFntClrSmph
+kbCfgIni
+kbCfgGetId
+syBtFlGetInfo
+syBtFlRead
+syBtFlWrite
+syBtFlDeleteSct
+syBtExit
+syBtCheckDisc
+
+# The C library's math (port/src/native.cpp).
+frexp
+log10
+_in_atans
+_in_atan2s
+_in_fmods
+_in_ldexps
+_in_log10s
+_in_logs
+
+# The decompiler process dies on it (port/src/native.cpp).
+njInitGlobal2
+
+# The SHC runtime's helpers, with their arguments in r0 to r2 (port/src/native.cpp).
+_divls
+_divlu
+_modls
+_modlu
+_divws
+_quick_mvn
+_quick_odd_mvn
+_quick_evn_mvn
+_slow_mvn
+_quick_strcpy
+quick_strcpy1
+_slow_strcpy
+
+# SHC passes sprintf's format and values on the stack (port/include/native.h).
+sprintf
+
+# The GD-ROM file system that the game calls, on the disc image's ISO 9660 (port/src/files.cpp).
+gdFsInit2
+gdFsFinish
+gdFsMount
+gdFsReMount
+gdFsIsTrayOpen
+gdFsCreateDirhn
+gdFsLoadDir
+gdFsSetDir
+gdFsOpen
+gdFsClose
+gdFsGetFileSize
+gdFsGetFileSctSize
+gdFsRead
+gdFsReqRd32
+gdFsGetStat
+gdFsGetErrStat
+gdFsStopRd
+
+# The controller and its units (port/src/input.cpp): the peripheral server from the launcher's
+# controller state, and a fixed setup instead of the Maple device layer.
+pdInitPeripheral
+pdExitPeripheral
+pdExecPeripheralServerUser
+pdVmsLcdIsReady
+pdVmsLcdWrite1
+pdLcdGetDirection
+pdVibIsReady
+
+# The memory card's files (port/src/saves.cpp): a directory on the host. FUN_8c05837c tells
+# whether a file is on the card, FUN_8c057e40 counts its free blocks.
+buInit
+buIsReady
+buStat
+buGetLastError
+buGetFileSize
+buLoadFile
+buSaveFile
+FUN_8c05837c
+FUN_8c057e40
+
+# Ninja's matrix and trigonometry functions (port/src/ninja.cpp).
+njSin
+njCos
+njSqrt
+njUnitMatrix
+njSetMatrix
+njRotateX
+njRotateY
+njRotateZ
+njScale
+njCalcPointEx
+njPushMatrixEx
+njPopMatrixEx
+njGetMatrix
+njTranslate
+njTranslateEx
+njRotateEx
+njScaleEx
+njUnitRotPortion
+njGetTranslation
+njCalcScreen
+njCollisionCheckSS
+
+# The clock's register read (port/src/clock.cpp): the host's local time.
+FUN_8c044a5c
+
+# Ninja's drawing that sends the same store-queue blocks as its machine code (port/src/ninja_draw.cpp).
+njDrawTexture2DExSetData

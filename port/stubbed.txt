@@ -1,0 +1,2 @@
+# Functions that the game calls, generated as stubs that return zero (tools/decomp/convert.py).
+# One C++ identifier per line. None at present: the sound library runs against the AICA model.

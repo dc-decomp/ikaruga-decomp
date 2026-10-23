@@ -13,6 +13,7 @@ game/cache/
 *.vmu
 *.vms
 *.vmi
+/saves/
 dc_bios*
 dc_boot*
 dc_flash*
@@ -46,3 +47,8 @@ __pycache__/
 
 # Boot ROM and flash images: owner data, supplied like the disc
 /bios/
+
+# Decompiled game code (tools/decomp/convert.py): derived from the game, kept in its own
+# local repository and never committed here.
+/decomp/
+/build-port/

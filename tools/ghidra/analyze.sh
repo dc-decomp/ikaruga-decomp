@@ -42,9 +42,31 @@ if [ "$language" = SuperH4:LE:32:katana ] \
 fi
 rm -rf "$out/c"
 
+# --export: only write the C again from the analysed project, after a change to ExportDecompiled.
+if [ "${1:-}" = --export ]; then
+  exec "$ghidra/support/analyzeHeadless" "$project" ikaruga \
+    -process \
+    -noanalysis \
+    -readOnly \
+    -scriptPath "$root/tools/ghidra;$root/dream-recomp/tools/ghidra" \
+    -postScript ExportDecompiled.java "$out/c" \
+    -log "$out/export.log" \
+    -scriptlog "$out/export-scripts.log"
+fi
+
 # dream-recomp makes a branch target into its own unit. In Ghidra such an entry is inside a function,
 # and a seed there would cut that function short.
-"$translate" discover --image "$binary" --base 0x8C010000 --entry 0x8C010000 \
+# The entries in the game config's [functions] extra list are code that only a pointer in RAM
+# reaches; discovery gets them as entries too.
+extra_entries=$(python3 -c '
+import re, sys
+text = open(sys.argv[1]).read()
+block = re.search(r"^extra\s*=\s*\[(.*?)\]", text, re.S | re.M)
+for word in re.findall(r"0x[0-9A-Fa-f]+", re.sub(r"#.*", "", block.group(1)) if block else ""):
+    print("--entry", hex(int(word, 16) | 0x80000000))
+' "$root/game/ikaruga.toml")
+# shellcheck disable=SC2086
+"$translate" discover --image "$binary" --base 0x8C010000 --entry 0x8C010000 $extra_entries \
   --out "$out/recomp-functions.json"
 # A switch case is not a function either: the pointer scan finds the table entries, but the cases
 # belong to the dispatcher, which ApplySwitchTables gives Ghidra as a jump-table override.
@@ -70,14 +92,30 @@ with open(sys.argv[2], "w") as o:
   -preScript MarkEntry.java \
   -preScript DreamcastMemoryMap.java \
   -preScript EnableAggressive.java \
+  -preScript AnalysisOptions.java \
   -postScript SeedFunctions.java "$out/seeds.txt" \
   -postScript ApplySwitchTables.java "$out/switch-tables.txt" \
   -postScript SeedFromPointers.java \
   -postScript ApplySymbols.java "$root/game/symbols.tsv" "labels:$root/game/globals.tsv" \
+  -postScript DropDataFunctions.java 0x8C0CA2F4 \
   -postScript ApplySdkHeaders.java "$sdk_include" shinobi.h,kamui2.h,Ninja.h,sg_sd.h -D_MACHINE \
+  -postScript ApplyPrototypes.java "$root/tools/ghidra/prototypes.txt" \
+  -postScript ApplyRegisterPrototypes.java \
+  -postScript StackStructParams.java \
   -postScript MarkConstantPools.java \
   -postScript FixupFlow.java \
   -postScript CommitPrototypes.java \
+  -postScript FixReturns.java \
+  -postScript NormalizeStorage.java \
+  -postScript OverrideIndirectCalls.java indirect \
+  -postScript InputParams.java \
+  -postScript TypeFunctionPointers.java \
+  -postScript InputParams.java \
+  -postScript TypeFunctionPointers.java \
+  -postScript ContextParams.java \
+  -postScript MarkConstantPools.java \
+  -postScript OverrideIndirectCalls.java variadic \
+  -postScript KeptRegisters.java \
   -postScript ExportFunctions.java "$out/functions.json" \
   -postScript ExportTypes.java "$out/types.json" \
   -postScript ExportDecompiled.java "$out/c" \

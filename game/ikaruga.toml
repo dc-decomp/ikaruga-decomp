@@ -29,6 +29,9 @@ extra = [
     # Its address is in the image at 0x8C091494, but discovery rejected that pointer. A release
     # build faulted on it at the first boss of stage 1, 2026-10-22.
     0x0C08EC88,
+    # A stub that jumps to FUN_8C0A0160, reached through the table at 0x8C0DB134. A port run
+    # called it in stage 2, 2026-10-22.
+    0x0C0A01A0,
 ]
 
 # Exception and interrupt vectors. The startup code sets VBR to 0x8C000000 and copies these handlers

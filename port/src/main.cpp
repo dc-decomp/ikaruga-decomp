@@ -1,0 +1,571 @@
+// The native port's entry point: loads the game into guest memory, prepares what the boot ROM would
+// have left behind, and runs the decompiled game from its own entry point.
+#include <execinfo.h>
+#include <signal.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <fstream>
+#include <memory>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "decomp.h"
+#include "dream/audio/sink.h"
+#include "dream/runtime/aica/aica.h"
+#include "dream/runtime/pvr/core.h"
+#include "dream/runtime/system.h"
+#include "hw.h"
+#include "live.h"
+#include "saves.h"
+#include "sh4/sh4.h"
+
+namespace bios {
+void install_vectors();
+}
+namespace cpu {
+void report_unknowns(std::FILE* out, size_t limit);
+void report_mask_changes(std::FILE* out);
+}
+namespace guest {
+void report_missing_calls(std::FILE* out);
+}
+namespace trace {
+void print(std::FILE* out, size_t last);
+void print_stack(std::FILE* out);
+void dump(const char* path);
+void dump_counts(const char* path);
+}
+namespace {
+
+struct StopRun {
+    std::string why;
+};
+
+// Returns the file's size, or 0 when it cannot be read.
+size_t load_file(const std::string& path, uint32_t address) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f)
+        return 0;
+    std::vector<char> data((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    for (size_t i = 0; i < data.size(); ++i)
+        guest::store<uint8_t>(address + static_cast<uint32_t>(i), static_cast<uint8_t>(data[i]));
+    return data.size();
+}
+
+void usage() {
+    std::fprintf(stderr,
+                 "usage: ikaruga [options]\n"
+                 "  --disc FILE.gdi   the disc (default game/disc/Ikaruga (Japan).gdi)\n"
+                 "  --boot FILE       1ST_READ.BIN, descrambled (default game/extracted/1ST_READ.plain.bin)\n"
+                 "  --bios FILE       a boot ROM image, for the system font (optional)\n"
+                 "  --saves DIR       the memory card's files (default saves)\n"
+                 "  --frames N        stop after N frames\n"
+                 "  --window          open a window: picture, sound, keyboard and gamepad, at the\n"
+                 "                    console's speed\n"
+                 "  --unthrottled     with --window, run as fast as possible\n"
+                 "  --scale N         draw at N times 640x480 (default 2)\n"
+                 "  --screenshot-at LIST write the frames drawn at these frames (300,800) to --screenshot-path\n"
+                 "  --screenshot-path FILE (default ikaruga.ppm); with several frames, FILE-N.ppm\n"
+                 "  --press LIST      scripted presses: start@600,a@700 holds a button for 8 frames,\n"
+                 "                    a@3000-6000 from frame 3000 to 6000\n"
+                 "  --wav FILE        record the sound as 16-bit stereo at 44.1 kHz\n"
+                 "  --no-audio        play no sound in the window\n"
+                 "  --record-input FILE  write the controller state of every frame where it changes\n"
+                 "  --replay-input FILE  play such a recording back instead of the controls; the format\n"
+                 "                    is dream-recomp's, so a recording from the reference build works\n");
+}
+
+}  // namespace
+
+// A crash in the decompiled code prints where it happened.
+void on_crash(int sig) {
+    void* frames[64];
+    const int n = backtrace(frames, 64);
+    trace::print(stderr, 60);
+    trace::print_stack(stderr);
+    std::fprintf(stderr, "signal %d, backtrace:\n", sig);
+    backtrace_symbols_fd(frames, n, STDERR_FILENO);
+    _exit(128 + sig);
+}
+
+int main(int argc, char** argv) {
+    // On its own stack, so that a stack overflow still reports.
+    static char alt[1 << 16];
+    stack_t ss{};
+    ss.ss_sp = alt;
+    ss.ss_size = sizeof(alt);
+    sigaltstack(&ss, nullptr);
+    struct sigaction sa{};
+    sa.sa_handler = on_crash;
+    sa.sa_flags = SA_ONSTACK;
+    sigaction(SIGSEGV, &sa, nullptr);
+    sigaction(SIGBUS, &sa, nullptr);
+    sigaction(SIGABRT, &sa, nullptr);
+    std::string disc = "game/disc/Ikaruga (Japan).gdi", boot = "game/extracted/1ST_READ.plain.bin";
+    std::string bios_rom, ip = "game/extracted/IP.BIN";
+    uint64_t max_frames = 0;
+    std::vector<uint64_t> screenshots;
+    bool window = false, unthrottled = false, audio = true;
+    std::string wav_path;
+    int scale = 2;
+    std::string screenshot_path = "ikaruga.ppm";
+    struct Press {
+        uint64_t from, until;
+        uint16_t bit;
+    };
+    std::vector<Press> presses;
+    std::string record_path, replay_path;
+    for (int i = 1; i < argc; ++i) {
+        const std::string a = argv[i];
+        auto next = [&]() -> std::string {
+            if (i + 1 >= argc) {
+                usage();
+                std::exit(2);
+            }
+            return argv[++i];
+        };
+        if (a == "--disc") disc = next();
+        else if (a == "--boot") boot = next();
+        else if (a == "--bios") bios_rom = next();
+        else if (a == "--saves") saves::set_directory(next());
+        else if (a == "--frames") max_frames = std::strtoull(next().c_str(), nullptr, 0);
+        else if (a == "--window") window = true;
+        else if (a == "--unthrottled") unthrottled = true;
+        else if (a == "--scale") scale = std::atoi(next().c_str());
+        else if (a == "--screenshot-at") {
+            const std::string list = next();
+            for (const char* p = list.c_str(); *p;) {
+                char* end;
+                screenshots.push_back(std::strtoull(p, &end, 0));
+                if (end == p) break;
+                p = *end == ',' ? end + 1 : end;
+            }
+        }
+        else if (a == "--screenshot-path") screenshot_path = next();
+        else if (a == "--press") {
+            const std::string list = next();
+            size_t pos = 0;
+            while (pos < list.size()) {
+                const size_t comma = list.find(',', pos);
+                const std::string item = list.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos);
+                const size_t at = item.find('@');
+                const std::string name = item.substr(0, at);
+                char* end = nullptr;
+                const uint64_t frame_no = std::strtoull(item.c_str() + at + 1, &end, 0);
+                const uint64_t until = *end == '-' ? std::strtoull(end + 1, nullptr, 0) : frame_no + 8;
+                const uint16_t bit = name == "start" ? 1 << 3 : name == "a" ? 1 << 2 : name == "b" ? 1 << 1
+                                   : name == "x" ? 1 << 10 : name == "y" ? 1 << 9 : name == "up" ? 1 << 4
+                                   : name == "down" ? 1 << 5 : name == "left" ? 1 << 6 : 1 << 7;
+                presses.push_back({frame_no, until, bit});
+                if (comma == std::string::npos) break;
+                pos = comma + 1;
+            }
+        }
+        else if (a == "--wav") wav_path = next();
+        else if (a == "--record-input") record_path = next();
+        else if (a == "--replay-input") replay_path = next();
+        else if (a == "--no-audio") audio = false;
+        else {
+            usage();
+            return 2;
+        }
+    }
+
+    hw::system();  // the console's memory is where the files below go
+    std::string err;
+    if (!hw::open_disc(disc, err)) {
+        std::fprintf(stderr, "disc: %s\n", err.c_str());
+        return 2;
+    }
+    const size_t image = load_file(boot, 0x8C010000u);
+    if (!image) {
+        std::fprintf(stderr, "cannot read %s\n", boot.c_str());
+        return 2;
+    }
+    guest::image_end = 0x8C010000u + static_cast<uint32_t>(image);
+    load_file(ip, 0x8C008000u);
+    if (!bios_rom.empty() && !hw::load_rom(bios_rom))
+        std::fprintf(stderr, "cannot read %s; the system font will be empty\n", bios_rom.c_str());
+    bios::install_vectors();
+    // The boot ROM hands over with the stack at the top of the game's stack area, which the startup
+    // code sets again from its own literal pool.
+    guest::sp = 0x8C00F000u;
+    if (std::getenv("IKARUGA_SH4_TEST"))
+        return sh4::self_test() ? 1 : 0;
+
+    auto is_screenshot = [&](uint64_t n) {
+        return std::find(screenshots.begin(), screenshots.end(), n) != screenshots.end();
+    };
+    auto suffixed = [&](const std::string& suffix) {
+        const size_t dot = screenshot_path.rfind('.');
+        const std::string stem = dot == std::string::npos ? screenshot_path : screenshot_path.substr(0, dot);
+        const std::string ext = dot == std::string::npos ? "" : screenshot_path.substr(dot);
+        return stem + suffix + ext;
+    };
+    auto shot_path = [&](uint64_t n) {
+        return screenshots.size() == 1 ? screenshot_path : suffixed("-" + std::to_string(n));
+    };
+
+    // The picture: dream-recomp's renderer draws each display list when the game starts the render,
+    // and the window shows what the console would scan out at each vertical blank.
+    std::unique_ptr<port::Live> live;
+    if (window) {
+        live = std::make_unique<port::Live>(hw::system().memory, hw::pvr());
+        if (!live->start(static_cast<unsigned>(scale), false, "Ikaruga")) {
+            std::fprintf(stderr, "window: %s\n", live->error.c_str());
+            return 2;
+        }
+        live->bindings_path = dream::render::vk::default_bindings_path();
+        live->load_bindings();
+        std::printf("F1 (or a pad's select button) opens the controller bindings\n");
+        hw::on_render([&live](const std::vector<uint32_t>& stream) { live->render(stream); });
+    }
+
+    // Sound: the AICA's samples go to the audio device, and to a WAV file if asked.
+    dream::audio::Sink sink;
+    if (window && audio && !sink.open())
+        std::fprintf(stderr, "audio: %s\n", sink.error().c_str());
+    std::FILE* wav = wav_path.empty() ? nullptr : std::fopen(wav_path.c_str(), "wb");
+    uint32_t wav_bytes = 0;
+    auto wav_header = [&] {
+        const uint32_t rate = 44100, byte_rate = rate * 4, riff = 36 + wav_bytes;
+        const uint16_t fmt = 1, channels = 2, align = 4, bits = 16;
+        const uint32_t fmt_size = 16;
+        std::fseek(wav, 0, SEEK_SET);
+        std::fwrite("RIFF", 1, 4, wav);
+        std::fwrite(&riff, 4, 1, wav);
+        std::fwrite("WAVEfmt ", 1, 8, wav);
+        std::fwrite(&fmt_size, 4, 1, wav);
+        std::fwrite(&fmt, 2, 1, wav);
+        std::fwrite(&channels, 2, 1, wav);
+        std::fwrite(&rate, 4, 1, wav);
+        std::fwrite(&byte_rate, 4, 1, wav);
+        std::fwrite(&align, 2, 1, wav);
+        std::fwrite(&bits, 2, 1, wav);
+        std::fwrite("data", 1, 4, wav);
+        std::fwrite(&wav_bytes, 4, 1, wav);
+    };
+    if (wav)
+        wav_header();
+    hw::aica().on_sample = [&](int16_t l, int16_t r) {
+        if (sink.is_open())
+            sink.push(l, r);
+        if (wav) {
+            const int16_t pair[2] = {l, r};
+            std::fwrite(pair, 2, 2, wav);
+            wav_bytes += 4;
+        }
+    };
+
+    // A recording: one line per frame where the controller changed, "frame buttons rtrigger ltrigger
+    // joy_x joy_y joy2_x joy2_y", buttons in hex and active low (dream-recomp's --record-input).
+    using Pad = dream::maple::ControllerState;
+    std::vector<std::pair<uint64_t, Pad>> replayed;
+    size_t replay_next = 0;
+    if (!replay_path.empty()) {
+        std::ifstream rec(replay_path);
+        if (!rec) {
+            std::fprintf(stderr, "--replay-input %s: cannot read it\n", replay_path.c_str());
+            return 2;
+        }
+        std::string line;
+        while (std::getline(rec, line)) {
+            unsigned long long f = 0;
+            unsigned b = 0, rt = 0, lt = 0, x = 0, y = 0, x2 = 0, y2 = 0;
+            if (line.empty() || line[0] == '#' ||
+                std::sscanf(line.c_str(), "%llu %x %u %u %u %u %u %u", &f, &b, &rt, &lt, &x, &y, &x2, &y2) != 8)
+                continue;
+            Pad p;
+            p.buttons = static_cast<uint16_t>(b);
+            p.rtrigger = static_cast<uint8_t>(rt);
+            p.ltrigger = static_cast<uint8_t>(lt);
+            p.joy_x = static_cast<uint8_t>(x);
+            p.joy_y = static_cast<uint8_t>(y);
+            p.joy2_x = static_cast<uint8_t>(x2);
+            p.joy2_y = static_cast<uint8_t>(y2);
+            replayed.push_back({f, p});
+        }
+        std::printf("input: replaying %zu controller changes from %s\n", replayed.size(), replay_path.c_str());
+    }
+    std::FILE* record = nullptr;
+    Pad last_recorded;
+    bool recorded_any = false;
+    if (!record_path.empty()) {
+        record = std::fopen(record_path.c_str(), "w");
+        if (!record) {
+            std::fprintf(stderr, "--record-input %s: cannot write it\n", record_path.c_str());
+            return 2;
+        }
+        std::fprintf(record, "# frame buttons rtrigger ltrigger joy_x joy_y joy2_x joy2_y\n");
+    }
+
+    // At each vertical blank: the recording, the scripted presses or the controls, the picture, the
+    // pace and the frame limit. The guest clock is the reference: the window sleeps only while ahead
+    // of it.
+    const auto started = std::chrono::steady_clock::now();
+    auto paused_for = std::chrono::steady_clock::duration::zero();
+    // IKARUGA_PEEK=ADDR[:SIZE][,ADDR[:SIZE]...]: prints the value at each address when it changes, at
+    // the vertical blank. SIZE is 1 (the default), 2 or 4; a 4-byte value is printed as a float too.
+    struct Peek {
+        uint32_t address;
+        unsigned size;
+        int64_t last;
+    };
+    std::vector<Peek> peeks;
+    if (const char* v = std::getenv("IKARUGA_PEEK"))
+        for (const char* p = v; *p;) {
+            char* end = nullptr;
+            const auto address = static_cast<uint32_t>(std::strtoul(p, &end, 0));
+            if (end == p)
+                break;
+            unsigned size = 1;
+            if (*end == ':')
+                size = static_cast<unsigned>(std::strtoul(end + 1, &end, 0));
+            peeks.push_back({address, size == 2 || size == 4 ? size : 1, -1});
+            p = *end == ',' ? end + 1 : end;
+        }
+    // IKARUGA_DUMP=FRAME[,FRAME...],DIR: writes main RAM at these vertical blanks, as DIR/ram-FRAME.bin.
+    std::vector<uint64_t> dump_frames;
+    std::string dump_dir;
+    if (const char* v = std::getenv("IKARUGA_DUMP"))
+        for (const char* p = v; *p;) {
+            char* end = nullptr;
+            const uint64_t n = std::strtoull(p, &end, 0);
+            if (end == p || (*end != ',' && *end)) {
+                dump_dir = p;
+                break;
+            }
+            dump_frames.push_back(n);
+            p = *end == ',' ? end + 1 : end;
+        }
+    // IKARUGA_DUMP_TA=FRAME,FILE: writes the first display list from that frame on as FILE, with
+    // video memory and the PVR registers as FILE.vram and FILE.vram.regs: the files the reference
+    // build's --dump-ta writes, for dream_render_view.
+    if (const char* v = std::getenv("IKARUGA_DUMP_TA")) {
+        char* end = nullptr;
+        const uint64_t from = std::strtoull(v, &end, 0);
+        const std::string path = *end == ',' ? end + 1 : "ikaruga.ta";
+        hw::on_render([from, path, done = false](const std::vector<uint32_t>& stream) mutable {
+            if (done || hw::frames() < from)
+                return;
+            done = true;
+            if (std::FILE* f = std::fopen(path.c_str(), "wb")) {
+                std::fwrite(stream.data(), 4, stream.size(), f);
+                std::fclose(f);
+            }
+            if (std::FILE* f = std::fopen((path + ".vram").c_str(), "wb")) {
+                std::fwrite(guest::vram(), 1, hw::kVramSize, f);
+                std::fclose(f);
+            }
+            if (std::FILE* f = std::fopen((path + ".vram.regs").c_str(), "wb")) {
+                for (uint32_t off = 0; off < 0x2000; off += 4) {
+                    const uint32_t word = hw::pvr().reg(off);
+                    std::fwrite(&word, 4, 1, f);
+                }
+                std::fclose(f);
+            }
+            std::printf("wrote %s: the display list of frame %llu, %zu words\n", path.c_str(),
+                        static_cast<unsigned long long>(hw::frames()), stream.size());
+        });
+    }
+    // IKARUGA_POKE=ADDR=BYTE[,ADDR=BYTE...]: writes these bytes at each vertical blank, e.g. to keep
+    // the lives counter up while a test plays to a later part of a stage.
+    std::vector<std::pair<uint32_t, uint8_t>> pokes;
+    if (const char* v = std::getenv("IKARUGA_POKE"))
+        for (const char* p = v; *p;) {
+            char* end = nullptr;
+            const uint32_t address = static_cast<uint32_t>(std::strtoul(p, &end, 0));
+            if (end == p || *end != '=')
+                break;
+            p = end + 1;
+            pokes.push_back({address, static_cast<uint8_t>(std::strtoul(p, &end, 0))});
+            if (end == p)
+                break;
+            p = *end == ',' ? end + 1 : end;
+        }
+    // IKARUGA_SHOTS_AFTER=ADDR+N[,ADDR+N...]: a screenshot N frames after the first call of the
+    // function at ADDR, named after the --screenshot-path as STEM-ADDR+N.ppm. The pictures follow the
+    // game's events, so a change that moves the timing still shows the same scenes.
+    struct ShotAfter {
+        uint32_t address;
+        uint64_t frames;
+    };
+    std::vector<ShotAfter> shots_after;
+    if (const char* v = std::getenv("IKARUGA_SHOTS_AFTER"))
+        for (const char* p = v; *p;) {
+            char* end = nullptr;
+            const auto address = static_cast<uint32_t>(std::strtoul(p, &end, 0));
+            if (end == p || *end != '+')
+                break;
+            p = end + 1;
+            shots_after.push_back({address, std::strtoull(p, &end, 0)});
+            diff::watch(address);
+            p = *end == ',' ? end + 1 : end;
+        }
+    // IKARUGA_AUTOPLAY: plays without a recording, for checks that must not depend on the game's
+    // timing (tools/port/check.py). Start and A in turns get through the menus with their defaults.
+    // In a stage (scenes 6 to 10, at 0x8C15C560) Start would pause, so nothing is pressed until the
+    // stage scrolls (its speed at 0x8C1D142C). From then on A stays held, which shoots, and the
+    // lives counter at 0x8C1D13EC stays at 2. Autosave (0x8C1CD76A, the options menu's setting)
+    // goes on at that point, so the game saves to the memory card when it returns to the title
+    // after the ending.
+    const bool autoplay = std::getenv("IKARUGA_AUTOPLAY") != nullptr;
+    bool autoplay_in_stage = false;
+    hw::on_vblank([&] {
+        const uint64_t frame = hw::frames();
+        if (!dump_dir.empty() && std::find(dump_frames.begin(), dump_frames.end(), frame) != dump_frames.end()) {
+            const std::string path = dump_dir + "/ram-" + std::to_string(frame) + ".bin";
+            if (std::FILE* f = std::fopen(path.c_str(), "wb")) {
+                std::fwrite(guest::ram, 1, guest::kRamSize, f);
+                std::fclose(f);
+            }
+        }
+        for (const auto& [address, value] : pokes)
+            guest::store<uint8_t>(address, value);
+        for (Peek& k : peeks) {
+            const int64_t now = k.size == 4   ? guest::load<uint32_t>(k.address)
+                                : k.size == 2 ? guest::load<uint16_t>(k.address)
+                                              : guest::load<uint8_t>(k.address);
+            if (now != k.last) {
+                std::printf("peek frame %llu: 0x%08x = 0x%0*llx", static_cast<unsigned long long>(frame), k.address,
+                            static_cast<int>(k.size * 2), static_cast<unsigned long long>(now));
+                if (k.size == 4)
+                    std::printf(" (%.9g)", static_cast<double>(pun<float>(static_cast<uint32_t>(now))));
+                std::printf("\n");
+            }
+            k.last = now;
+        }
+        dream::maple::ControllerState& pad = hw::pad();
+        uint16_t scripted = 0;
+        for (const Press& p : presses)
+            if (frame >= p.from && frame < p.until)
+                scripted |= p.bit;
+        if (autoplay) {
+            constexpr uint16_t kStart = 1 << 3, kA = 1 << 2;
+            if (!autoplay_in_stage && guest::load<float>(0x8C1D142Cu) != 0.0f) {
+                autoplay_in_stage = true;
+                guest::store<uint8_t>(0x8C1CD76Au, 1);
+            }
+            if (autoplay_in_stage) {
+                scripted |= kA;
+                guest::store<uint8_t>(0x8C1D13ECu, 2);
+            }
+            else if (const uint8_t scene = guest::load<uint8_t>(0x8C15C560u); (scene < 6 || scene > 10) && frame % 60 < 8)
+                scripted |= frame % 120 < 60 ? kStart : kA;
+        }
+        if (live) {
+            if (!live->present(frame, hw::now()))
+                throw StopRun{"the window was closed"};
+            if (live->menu.is_open()) {
+                const auto paused_at = std::chrono::steady_clock::now();
+                while (live->menu.is_open()) {
+                    if (!live->present(frame, hw::now()))
+                        throw StopRun{"the window was closed"};
+                    std::this_thread::sleep_for(std::chrono::milliseconds(8));
+                }
+                paused_for += std::chrono::steady_clock::now() - paused_at;
+            }
+            if (replayed.empty())
+                live->read_controls(pad);
+            if (is_screenshot(frame)) {
+                const std::string path = shot_path(frame);
+                live->screenshot_to(path);
+                std::printf("screenshot of frame %llu: %s\n", static_cast<unsigned long long>(frame), path.c_str());
+            }
+            for (const ShotAfter& sa : shots_after) {
+                const uint64_t first = diff::first_call(sa.address);
+                if (first == diff::kNotYet || frame != first + sa.frames)
+                    continue;
+                char name[64];
+                std::snprintf(name, sizeof name, "-%08x+%llu", sa.address, static_cast<unsigned long long>(sa.frames));
+                const std::string path = suffixed(name);
+                live->screenshot_to(path);
+                std::printf("screenshot of frame %llu: %s\n", static_cast<unsigned long long>(frame), path.c_str());
+            }
+            if (!unthrottled) {
+                const auto guest = std::chrono::duration<double>(static_cast<double>(hw::now()) / hw::kCpuHz);
+                const auto target =
+                    started + paused_for + std::chrono::duration_cast<std::chrono::steady_clock::duration>(guest);
+                const auto now = std::chrono::steady_clock::now();
+                if (target > now && target - now < std::chrono::seconds(1))
+                    std::this_thread::sleep_for(target - now);
+            }
+        }
+        // Scripted presses add to what the player holds; without a window nobody holds anything.
+        if (!replayed.empty()) {
+            while (replay_next < replayed.size() && replayed[replay_next].first <= frame)
+                pad = replayed[replay_next++].second;
+        }
+        else if (!live)
+            pad.buttons = 0xFFFF;
+        pad.buttons = static_cast<uint16_t>(pad.buttons & ~scripted);
+        if (record) {
+            const Pad& p = pad;
+            if (!recorded_any || p.buttons != last_recorded.buttons || p.rtrigger != last_recorded.rtrigger ||
+                p.ltrigger != last_recorded.ltrigger || p.joy_x != last_recorded.joy_x ||
+                p.joy_y != last_recorded.joy_y || p.joy2_x != last_recorded.joy2_x ||
+                p.joy2_y != last_recorded.joy2_y) {
+                std::fprintf(record, "%llu %04x %u %u %u %u %u %u\n", static_cast<unsigned long long>(frame),
+                             p.buttons, p.rtrigger, p.ltrigger, p.joy_x, p.joy_y, p.joy2_x, p.joy2_y);
+                std::fflush(record);
+                last_recorded = p;
+                recorded_any = true;
+            }
+        }
+        if (max_frames && frame >= max_frames) {
+            trace::print_stack(stdout);
+            sh4::report(stdout);
+            if (std::getenv("IKARUGA_BACKTRACE")) {
+                void* frames[64];
+                const int n = backtrace(frames, 64);
+                std::fflush(stdout);
+                backtrace_symbols_fd(frames, n, STDOUT_FILENO);
+            }
+            throw StopRun{"frame limit"};
+        }
+    });
+
+    std::string why = "returned";
+    try {
+        // The entry through the dispatch, with the registers the boot ROM leaves: nothing in them.
+        guest::call(0x8C010000u, CallArgs{});
+    }
+    catch (const StopRun& s) {
+        why = s.why;
+    }
+    catch (const game::ExitRequested&) {
+        why = "the game exited";
+        trace::print(stdout, 120);
+    }
+
+    if (const char* path = std::getenv("IKARUGA_TRACE_FILE"))
+        trace::dump(path);
+    if (const char* path = std::getenv("IKARUGA_COUNT_FILE"))
+        trace::dump_counts(path);
+    if (wav) {
+        wav_header();
+        std::fclose(wav);
+    }
+    const hw::Stats& s = hw::stats();
+    std::printf("stop: %s after %llu frames\n", why.c_str(), static_cast<unsigned long long>(hw::frames()));
+    std::printf("renders %llu, store-queue flushes %llu, interrupts %llu, GD-ROM sectors %llu, sound samples %llu\n",
+                static_cast<unsigned long long>(hw::pvr().renders), static_cast<unsigned long long>(s.sq_flushes),
+                static_cast<unsigned long long>(s.interrupts), static_cast<unsigned long long>(s.gd_sectors),
+                static_cast<unsigned long long>(hw::aica().samples));
+    hw::report_interrupts(stdout);
+    sh4::report_profile(stdout);
+    cpu::report_mask_changes(stdout);
+    hw::report_unhandled(stdout, 40);
+    // IKARUGA_UNKNOWNS=N lists N of them instead of 30.
+    const char* unknowns = std::getenv("IKARUGA_UNKNOWNS");
+    cpu::report_unknowns(stdout, unknowns ? std::strtoul(unknowns, nullptr, 0) : 30);
+    guest::report_missing_calls(stdout);
+    diff::report(stdout);
+    return 0;
+}

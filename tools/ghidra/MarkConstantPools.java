@@ -72,8 +72,11 @@ public class MarkConstantPools extends GhidraScript {
                     pointers++;
                     // SH-4 code calls through the pool with jsr @rN, an indirect call. The decompiler
                     // takes its prototype from the pointer's type, so point at the target's signature.
+                    // A function with its arguments in other registers (the SHC runtime's helpers)
+                    // keeps an untyped constant: a signature type has no registers, and the call
+                    // would get the default ones.
                     Function fn = getFunctionAt(toAddr(v));
-                    if (fn != null) {
+                    if (fn != null && !fn.hasCustomVariableStorage()) {
                         type = new PointerDataType(new FunctionDefinitionDataType(fn, false));
                     }
                 }

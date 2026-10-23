@@ -1,0 +1,58 @@
+# Prototypes written by hand, applied by ApplyPrototypes.java as user-defined signatures.
+#
+# The wrappers around the boot ROM's vectors pass their arguments through in r4 and r5 without
+# reading them, so the decompiler gives them no parameters, and every caller then drops the
+# arguments it passes. These signatures follow the boot ROM's documented calling interface.
+int gdGdcReqCmd(int cmd, unsigned int *param);
+int gdGdcGetCmdStat(int id, unsigned int *status);
+void gdGdcExecServer(void);
+void gdGdcInitSystem(void);
+int gdGdcGetDrvStat(unsigned int *status);
+int gdGdcG1DmaEnd(void *callback, unsigned int arg);
+int gdGdcReqDmaTrans(int id, unsigned int *param);
+int gdGdcCheckDmaTrans(int id, unsigned int *size);
+int gdGdcReadAbort(int id);
+void gdGdcReset(void);
+int syBtFlGetInfo(int partition, unsigned int *info);
+int syBtFlRead(unsigned int offset, void *buffer, unsigned int size);
+int syBtFlWrite(unsigned int offset, void *buffer, unsigned int size);
+int syBtFlDeleteSct(unsigned int offset);
+int syBtFntChkSmph(void);
+void syBtFntClrSmph(void);
+
+# The C library's single-precision internals. The game is built with SHC's single-precision FPU
+# option, so its double is a 4-byte float passed in fr4: as 8-byte doubles every call to them
+# decompiled into pairs of halves. The port implements them natively.
+float frexp(float value, int *exponent);
+float log10(float x);
+float _in_atans(float x);
+float _in_atan2s(float y, float x);
+float _in_fmods(float x, float y);
+float _in_ldexps(float x, int exponent);
+float _in_log10s(float x);
+float _in_logs(float x);
+
+# Kamui's background-plane setters, one per vertex type, called through the table at 0x8C0CF1A8
+# with the strip head and three vertex pointers. Each spills the vertex pointers into a stack
+# array and reads them back through a pointer, and the decompiler drops those spills: without
+# these signatures it sees one parameter. tools/decomp/spills.txt puts the spills back.
+undefined4 FUN_8c035080(void *head, void *vertex1, void *vertex2, void *vertex3);
+undefined4 FUN_8c035120(void *head, void *vertex1, void *vertex2, void *vertex3);
+undefined4 FUN_8c035240(void *head, void *vertex1, void *vertex2, void *vertex3);
+undefined4 FUN_8c0352fe(void *head, void *vertex1, void *vertex2, void *vertex3);
+undefined4 FUN_8c035398(void *head, void *vertex1, void *vertex2, void *vertex3);
+undefined4 FUN_8c035440(void *head, void *vertex1, void *vertex2, void *vertex3);
+undefined4 FUN_8c0355f8(void *head, void *vertex1, void *vertex2, void *vertex3);
+undefined4 FUN_8c035790(void *head, void *vertex1, void *vertex2, void *vertex3);
+undefined4 FUN_8c0358cc(void *head, void *vertex1, void *vertex2, void *vertex3);
+undefined4 FUN_8c035a20(void *head, void *vertex1, void *vertex2, void *vertex3);
+undefined4 FUN_8c035a8e(void *head, void *vertex1, void *vertex2, void *vertex3);
+undefined4 FUN_8c035b4c(void *head, void *vertex1, void *vertex2, void *vertex3);
+undefined4 FUN_8c035be6(void *head, void *vertex1, void *vertex2, void *vertex3);
+undefined4 FUN_8c035ca0(void *head, void *vertex1, void *vertex2, void *vertex3);
+undefined4 FUN_8c035ddc(void *head, void *vertex1, void *vertex2, void *vertex3);
+
+# FUN_8c07e144 creates an object from four words, two floats and two more words that its callers
+# pass on the stack: an angle and a word it keeps. With no parameters there, the C++ read 0 for
+# the angle, and stage 3 and 4 objects started at angle 0.
+float *FUN_8c07e144(unsigned int param_1, unsigned int param_2, unsigned char param_3, float *param_4, float param_5, float param_6, int angle, unsigned int param_8);

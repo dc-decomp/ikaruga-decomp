@@ -1,0 +1,19 @@
+# Register arguments that a function stores into a stack array, where the decompiler drops the
+# stores: Ghidra loses stores to a stack array that the function reads back only through a
+# pointer it keeps on the stack. The converter puts them back at the start of the body.
+# Each line: the function, the array, then the parameters stored into its elements in order.
+FUN_8c035080 local_c vertex1 vertex2 vertex3
+FUN_8c035120 local_14 vertex1 vertex2 vertex3
+FUN_8c035240 local_14 vertex1 vertex2 vertex3
+FUN_8c0352fe local_c vertex1 vertex2 vertex3
+FUN_8c035398 local_c vertex1 vertex2 vertex3
+FUN_8c035440 local_14 vertex1 vertex2 vertex3
+FUN_8c0355f8 local_14 vertex1 vertex2 vertex3
+FUN_8c035790 local_1c vertex1 vertex2 vertex3
+FUN_8c0358cc local_1c vertex1 vertex2 vertex3
+FUN_8c035a20 local_c vertex1 vertex2 vertex3
+FUN_8c035a8e local_14 vertex1 vertex2 vertex3
+FUN_8c035b4c local_c vertex1 vertex2 vertex3
+FUN_8c035be6 local_c vertex1 vertex2 vertex3
+FUN_8c035ca0 local_1c vertex1 vertex2 vertex3
+FUN_8c035ddc local_1c vertex1 vertex2 vertex3

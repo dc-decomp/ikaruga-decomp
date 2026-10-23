@@ -25,7 +25,11 @@ import ghidra.app.util.cparser.C.CParserUtils;
 import ghidra.app.util.cparser.C.CParserUtils.CParseResults;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.data.Array;
 import ghidra.program.model.data.FunctionDefinition;
+import ghidra.program.model.data.ParameterDefinition;
+import ghidra.program.model.data.PointerDataType;
+import ghidra.program.model.data.TypeDef;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.symbol.SourceType;
 
@@ -83,6 +87,7 @@ public class ApplySdkHeaders extends GhidraScript {
             if (fd == null) {
                 continue;
             }
+            fd = decayArrays(fd);
             if (new ApplyFunctionSignatureCmd(f.getEntryPoint(), fd, SourceType.IMPORTED)
                     .applyTo(currentProgram, monitor)) {
                 applied++;
@@ -93,6 +98,27 @@ public class ApplySdkHeaders extends GhidraScript {
         }
         println("ApplySdkHeaders: " + prototypes.size() + " prototypes parsed, " + applied
             + " functions given one, " + failed + " failed");
+    }
+
+    // An array parameter is a pointer in C. Ghidra keeps the array type and then cannot place the
+    // parameter: njGenerateFogTable3(NJS_FOG_TABLE fog, Float n, Float f) takes a Float[128].
+    private static FunctionDefinition decayArrays(FunctionDefinition fd) {
+        ParameterDefinition[] args = fd.getArguments();
+        boolean changed = false;
+        for (ParameterDefinition p : args) {
+            DataType t = p.getDataType();
+            DataType base = t instanceof TypeDef td ? td.getBaseDataType() : t;
+            if (base instanceof Array a) {
+                p.setDataType(new PointerDataType(a.getDataType()));
+                changed = true;
+            }
+        }
+        if (!changed) {
+            return fd;
+        }
+        FunctionDefinition copy = (FunctionDefinition) fd.copy(fd.getDataTypeManager());
+        copy.setArguments(args);
+        return copy;
     }
 
     private static File cleanCopy(File include) throws Exception {
