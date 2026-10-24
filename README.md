@@ -21,7 +21,7 @@ first. [docs/progress.md](docs/progress.md) records what was patched, and why.
 
 ## Requirements
 
-- Ghidra 12.1 and JDK 21: `brew install ghidra`
+- Ghidra 12.2 and JDK 25: `brew install ghidra`
 - A checkout of dream-recomp at `../dream-recomp`, built as its README describes, with `dcdisc`
   installed. `dream-recomp/` in this repository is a symbolic link to it.
 - Python 3.9 or later
@@ -244,8 +244,9 @@ what the test can and cannot find.
 To check that a change still lets the game reach its milestones, whatever it does to the timing, run
 `tools/port/check.py`. It plays the whole game with `IKARUGA_AUTOPLAY`, in about 15 minutes. It
 fails when a stage, a boss or the ending does not come by a given frame, when the game stops
-drawing, or when a boot does not get back what the game saved after the ending. A recording
-cannot check this: it replays only in the build that made it. `--frames 18000` checks only the
+drawing, when a boot does not get back what the game saved after the ending, or when the soft
+reset (A, B, X, Y and Start) does not end the game. A recording cannot check this: it replays
+only in the build that made it. `--frames 18000` checks only the
 first two milestones, in two minutes. `--pictures DIR` also takes screenshots a fixed time after
 some milestones and compares them with the set that `--keep` kept. The pictures come from the
 game, so keep `DIR` outside the repository.
@@ -292,6 +293,7 @@ How the runtime works is in [docs/progress.md](docs/progress.md), "Native port".
 | `decomp/` | The converted game code. Generated, ignored here, a local repository of its own. |
 | `game/` | The title config and the symbol tables. `game/extracted/` holds the disc files. |
 | `docs/progress.md` | Status, decisions, measurements and the plan |
+| `docs/native-platform.md` | What the game needs from the platform, and the steps to a native one |
 | `CMakeLists.txt` | Builds dream-recomp and the recompiled title, for the reference build |
 
 ## Rules

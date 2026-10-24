@@ -51,6 +51,7 @@ add_custom_command(OUTPUT "${SHADER_BUILD_DIR}/shaders.cpp"
 
 add_library(ikaruga_render STATIC
   src/render/ta.cpp
+  src/render/draw.cpp
   src/render/texture.cpp
   src/render/gpu_metal.mm
   src/render/window.cpp
@@ -86,13 +87,20 @@ add_executable(ikaruga
   src/clock.cpp
   src/disc.cpp
   src/files.cpp
+  src/frame.cpp
   src/kamui.cpp
+  src/kamui_texture.cpp
   src/input.cpp
   src/ninja.cpp
   src/ninja_draw.cpp
+  src/ninja_chunk.cpp
+  src/ninja_motion.cpp
+  src/ninja_texture.cpp
+  src/ninja_init.cpp
   src/saves.cpp
   src/native.cpp
   src/trace.cpp
+  src/video.cpp
   src/diff.cpp
   src/sh4/sh4.cpp
   src/sh4/selftest.cpp)

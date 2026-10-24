@@ -18,7 +18,7 @@ The run plays the whole game, in about 15 minutes. Autoplay turns autosave on, s
 to the memory card (--saves, a temporary directory) on its way back to the title. A second run
 boots with that card. Only the ending sets the game-clear flags, so they must be there before the
 stage starts. --frames N checks only the milestones due by frame N: --frames 18000 takes two
-minutes.
+minutes. A third run presses the soft reset on the title screen and checks that the game exits.
 
 With --pictures the run opens a window and takes a screenshot a fixed number of frames after
 some of the milestones (IKARUGA_SHOTS_AFTER), so the pictures show the same scenes when a change
@@ -65,6 +65,13 @@ SAVE_FILE = "IKARUGA_DATA.VMS"
 SAVE_BY = 122000
 CLEAR_FLAGS = 0x8C1CD778
 LOAD_FRAMES = 1500
+
+# The soft reset: A, B, X and Y held on the title screen (scene 4 from about frame 240) while
+# autoplay presses Start at frame 360. The game leaves its main loop, unloads Ninja and Kamui and
+# calls syBtExit, which ends the run after about 400 frames. A hang fails by the timeout.
+RESET_PRESS = "a@250-420,b@250-420,x@250-420,y@250-420"
+RESET_FRAMES = 3000
+RESET_SECONDS = 120
 
 # (name, the milestone's function, frames after its first call)
 PICTURES = [
@@ -161,14 +168,19 @@ def compare(directory: Path) -> None:
     print(f"     {directory / 'compare.png'}: kept on the left, new on the right")
 
 
-def run(args: argparse.Namespace, card: Path, frames: int, env: dict[str, str], window: list[str]) -> str:
+def run(args: argparse.Namespace, card: Path, frames: int, env: dict[str, str], extra: list[str],
+        timeout: int | None = None) -> str | None:
+    """The run's output, or None when it does not end within `timeout` seconds."""
     cmd = [str(args.binary), "--unthrottled", "--no-audio", "--frames", str(frames),
            "--saves", str(card)]
     bios = ROOT / "bios" / "dc_bios.bin"
     if bios.exists():
         cmd += ["--bios", str(bios)]
-    done = subprocess.run(cmd + window, cwd=ROOT, env={**os.environ, "IKARUGA_AUTOPLAY": "1", **env},
-                          capture_output=True, text=True)
+    try:
+        done = subprocess.run(cmd + extra, cwd=ROOT, env={**os.environ, "IKARUGA_AUTOPLAY": "1", **env},
+                              capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None
     return done.stdout + done.stderr
 
 
@@ -191,14 +203,17 @@ def main() -> int:
         window = ["--window", "--screenshot-path", str(new / "shot.ppm")]
     with tempfile.TemporaryDirectory() as tmp:
         card = Path(tmp)
-        out = run(args, card, args.frames, env, window)
+        out = run(args, card, args.frames, env, window) or ""
         saved = (card / SAVE_FILE).exists()
         # The game loads its file at the boot. Only the ending sets the game-clear flags, so flags
         # that are there before the stage starts came from the card.
         loaded = None
         if saved and args.frames >= SAVE_BY:
-            flags = run(args, card, LOAD_FRAMES, {"IKARUGA_PEEK": f"0x{CLEAR_FLAGS:08x}:2"}, [])
+            flags = run(args, card, LOAD_FRAMES, {"IKARUGA_PEEK": f"0x{CLEAR_FLAGS:08x}:2"}, []) or ""
             loaded = re.search(rf"^peek frame \d+: 0x{CLEAR_FLAGS:08x} = 0x0*[1-9a-f]", flags, re.M) is not None
+        reset_card = card / "reset"
+        reset_card.mkdir()
+        reset = run(args, reset_card, RESET_FRAMES, {}, ["--press", RESET_PRESS], RESET_SECONDS)
 
     first = {int(a, 16): int(f) for a, f in re.findall(r"^first call of (0x[0-9a-f]+) at frame (\d+)$", out, re.M)}
     failed = False
@@ -227,6 +242,16 @@ def main() -> int:
             failed = True
         else:
             print("ok   save and load: the card holds the game file, and a boot gets its flags back")
+
+    exited = re.search(r"^stop: the game exited after (\d+) frames", reset or "", re.M)
+    if reset is None:
+        print(f"FAIL soft reset: the run did not end within {RESET_SECONDS} seconds")
+        failed = True
+    elif not exited:
+        print(f"FAIL soft reset: the game did not exit in {RESET_FRAMES} frames")
+        failed = True
+    else:
+        print(f"ok   soft reset: A, B, X, Y and Start end the game at frame {exited.group(1)}")
 
     if args.pictures:
         compare(args.pictures)

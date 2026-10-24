@@ -50,7 +50,10 @@ void Window::render(const std::vector<uint32_t>& stream, const Hardware& hw) {
     last_stream_ = stream;
     decoder_.reset();
     decoder_.feed(stream.data(), stream.size());
-    gpu_->render(decoder_.list(), hw);
+    Frame frame = translate(decoder_.list(), hw);
+    if (on_frame)
+        on_frame(frame);
+    gpu_->render(frame, hw);
 }
 
 void Window::close_menu() {

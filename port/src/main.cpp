@@ -20,6 +20,7 @@
 #include "dream/runtime/maple/maple.h"
 #include "dream/runtime/mem/dc_memory.h"
 #include "dream/runtime/system.h"
+#include "frame.h"
 #include "hw.h"
 #include "render/activity.h"
 #include "render/audio.h"
@@ -379,9 +380,10 @@ int main(int argc, char** argv) {
         });
     }
     // IKARUGA_STREAMS=FILE: one line for each render: its number, the frame, the display list's
-    // words, and hashes of the display list, of the registers the renderer reads and of video
-    // memory. Two builds that play the same game give the same lines. A change that moves the
-    // timing changes them: the game's animations read the time.
+    // words, and hashes of the display list, of the registers the renderer reads, of video memory
+    // and of the decoded display list, which leaves out the words that the renderer ignores. Two
+    // builds that play the same game give the same lines. A change that moves the timing changes
+    // them: the game's animations read the time.
     std::FILE* streams = nullptr;
     if (const char* path = std::getenv("IKARUGA_STREAMS")) {
         streams = std::fopen(path, "w");
@@ -408,11 +410,15 @@ int main(int argc, char** argv) {
             for (uint32_t off : kRegisters) regs = hash(&hw.registers[off / 4], 4, regs ^ off);
             regs = hash(&hw.registers[0x200 / 4], 0x200, regs);
             regs = hash(&hw.registers[0x1000 / 4], 0x1000, regs);
-            std::fprintf(streams, "%llu %llu %zu %016llx %016llx %016llx\n", static_cast<unsigned long long>(n++),
+            static render::TaDecoder decoder;
+            decoder.reset();
+            decoder.feed(stream.data(), stream.size());
+            std::fprintf(streams, "%llu %llu %zu %016llx %016llx %016llx %016llx\n", static_cast<unsigned long long>(n++),
                          static_cast<unsigned long long>(hw::frames()), stream.size(),
                          static_cast<unsigned long long>(hash(stream.data(), stream.size() * 4)),
                          static_cast<unsigned long long>(regs),
-                         static_cast<unsigned long long>(hash(hw.vram, hw.vram_size)));
+                         static_cast<unsigned long long>(hash(hw.vram, hw.vram_size)),
+                         static_cast<unsigned long long>(frame::hash(decoder.list())));
         });
     }
     // IKARUGA_POKE=ADDR=BYTE[,ADDR=BYTE...]: writes these bytes at each vertical blank, e.g. to keep
@@ -613,10 +619,11 @@ int main(int argc, char** argv) {
                     static_cast<unsigned long long>(sink.pushed), static_cast<unsigned long long>(sink.dropped));
     const hw::Stats& s = hw::stats();
     std::printf("stop: %s after %llu frames\n", why.c_str(), static_cast<unsigned long long>(hw::frames()));
-    std::printf("renders %llu, store-queue flushes %llu, interrupts %llu, GD-ROM sectors %llu, sound samples %llu\n",
+    std::printf("renders %llu, store-queue flushes %llu, interrupts %llu, video events %llu, GD-ROM sectors %llu, "
+                "sound samples %llu\n",
                 static_cast<unsigned long long>(hw::renders()), static_cast<unsigned long long>(s.sq_flushes),
-                static_cast<unsigned long long>(s.interrupts), static_cast<unsigned long long>(s.gd_sectors),
-                static_cast<unsigned long long>(hw::aica().samples));
+                static_cast<unsigned long long>(s.interrupts), static_cast<unsigned long long>(s.video_events),
+                static_cast<unsigned long long>(s.gd_sectors), static_cast<unsigned long long>(hw::aica().samples));
     hw::report_interrupts(stdout);
     sh4::report_profile(stdout);
     cpu::report_mask_changes(stdout);

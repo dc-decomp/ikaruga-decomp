@@ -1083,6 +1083,16 @@ template <class V>
 inline void set_fpscr_any(const V& v) {
     set_fpscr(to_word(v));
 }
+// ftrc: towards zero, and the SH-4's saturated values out of range.
+inline uint32_t ftrc(float f) {
+    if (std::isnan(f))
+        return 0x80000000u;
+    if (f >= 2147483648.0f)
+        return 0x7FFFFFFFu;
+    if (f < -2147483648.0f)
+        return 0x80000000u;
+    return static_cast<uint32_t>(static_cast<int32_t>(f));
+}
 }  // namespace cpu
 template <class V>
 inline void TrapAlways(const V& n) {

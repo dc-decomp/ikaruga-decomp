@@ -71,7 +71,7 @@ void interrupt(uint32_t intevt, int level);
 uint64_t frames();
 
 struct Stats {
-    uint64_t interrupts = 0, sq_flushes = 0, gd_sectors = 0, events = 0;
+    uint64_t interrupts = 0, sq_flushes = 0, gd_sectors = 0, events = 0, video_events = 0;
 };
 Stats& stats();
 
@@ -94,6 +94,8 @@ void on_render(std::function<void(const std::vector<uint32_t>& stream)> hook);
 // renders started.
 const uint32_t* pvr_registers();
 uint64_t renders();
+// Draws a frame's display list: the render hooks get it.
+void render(const std::vector<uint32_t>& stream);
 // A channel-2 DMA from main RAM to the PowerVR's address space, complete when it returns: to the
 // tile accelerator at 0x10000000, or into texture memory at 0x11000000.
 void pvr_transfer(uint32_t destination, uint32_t source, uint32_t bytes);

@@ -3,7 +3,8 @@
 // On the first N calls of each decompiled function, the SH-4 interpreter first runs the function's
 // machine code from the same memory and registers. The port keeps the memory that run leaves,
 // restores the memory from before, and then runs the C++ body. If memory differs after the body,
-// the C does not do what the machine code does, and the port names the function and the words.
+// the C does not do what the machine code does, and the port names the function and the words. A
+// function that returns through Check::returns has its result compared too.
 //
 // The interpreter's run is a shadow: it drops register writes and store-queue flushes, and time
 // does not pass in it. A body that accesses registers can start a DMA that the shadow did not, so
@@ -88,6 +89,9 @@ void log_interpreted(uint32_t address, const CallArgs& args);
 bool begin(uint32_t address);
 bool shadow(uint32_t address, const char* name, const CallArgs& args);
 void finish(bool unwinding);
+// The result of the C++ body of the call under test, which the test compares with the machine
+// code's r0, or for a float with its fr0.
+void note_result(uint32_t bits, bool fpu);
 void report(std::FILE* out);
 
 class Check {
@@ -129,6 +133,22 @@ public:
     ~Check() {
         if (active_)
             finish(std::uncaught_exceptions() > 0);
+    }
+    // Returns v: a function that its machine code's callers read a result from returns through
+    // this, and the test compares the result too.
+    template <class T>
+    T returns(T v) const {
+        if (active_) {
+            if constexpr (std::is_floating_point_v<T>) {
+                uint32_t bits;
+                std::memcpy(&bits, &v, 4);
+                note_result(bits, true);
+            }
+            else {
+                note_result(to_word(v), false);
+            }
+        }
+        return v;
     }
     Check(const Check&) = delete;
     Check& operator=(const Check&) = delete;

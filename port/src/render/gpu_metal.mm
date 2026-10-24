@@ -21,12 +21,8 @@
 namespace render {
 namespace {
 
-// PowerVR registers, as word offsets from 0x005F8000.
-constexpr size_t kFbRSof1 = 0x050 / 4, kFbWSof1 = 0x060 / 4, kFbXClip = 0x068 / 4, kFbYClip = 0x06C / 4;
-constexpr size_t kParamBase = 0x020 / 4, kIspBackgndD = 0x088 / 4, kIspBackgndT = 0x08C / 4;
-constexpr size_t kFogColRam = 0x0B0 / 4, kFogColVert = 0x0B4 / 4, kFogDensity = 0x0B8 / 4;
-constexpr size_t kTextControl = 0x0E4 / 4, kPalRamCtrl = 0x108 / 4, kPtAlphaRef = 0x11C / 4;
-constexpr size_t kFogTable = 0x200 / 4, kPaletteRam = 0x1000 / 4;
+// FB_R_SOF1, the frame buffer on display, as a word offset from the PowerVR's registers.
+constexpr size_t kFbRSof1 = 0x050 / 4;
 
 // The shaders' structures (shaders/geometry.metal).
 struct Screen {
@@ -77,26 +73,13 @@ std::vector<Band> plan_bands(const uint32_t* slices, uint32_t count, uint32_t bu
     return out;
 }
 
-float as_float(uint32_t w) {
-    float f;
-    std::memcpy(&f, &w, 4);
-    return f;
-}
+uint64_t hash_bytes(const uint8_t* p, size_t n, uint64_t h);
 
-// The 32-bit view of video memory interleaves its two 4 MB banks by word. The framebuffers and the
-// parameter buffer are addressed in it.
-uint32_t vram_offset32(uint32_t a) {
-    a &= 0x7FFFFF;
-    return ((a & 0x3FFFFC) << 1) | ((a >> 20) & 4) | (a & 3);
-}
-
-uint32_t word32(const Hardware& hw, uint32_t a) {
-    const uint32_t o = vram_offset32(a);
-    if (o + 4 > hw.vram_size)
-        return 0;
-    uint32_t w;
-    std::memcpy(&w, hw.vram + o, 4);
-    return w;
+// A texture's place in the cache: its format, and with a palette the palette's format.
+uint64_t texture_key(const TextureFormat& t, uint32_t palette_format) {
+    const uint32_t fields[] = {t.address, t.width, t.height, static_cast<uint32_t>(t.pixel), t.twiddled, t.vq,
+                               t.mipmapped, t.row_texels, t.palette_base, palette_format};
+    return hash_bytes(reinterpret_cast<const uint8_t*>(fields), sizeof fields, 0);
 }
 
 uint64_t hash_bytes(const uint8_t* p, size_t n, uint64_t h) {
@@ -143,7 +126,8 @@ void colour_of(uint32_t reg, float (&out)[4]) {
     out[3] = 1.0f;
 }
 
-struct Draw {
+// A strip's triangles as the GPU draws them.
+struct Batch {
     uint32_t first, count;
     bool translucent;
     uint32_t pipeline;  // an opaque or punch-through strip's blend factors
@@ -191,7 +175,7 @@ struct Gpu::Impl {
     uint32_t width = 640, height = 480;
     std::vector<Vertex> triangles;
     std::vector<uint32_t> texels;
-    std::vector<Draw> draws;
+    std::vector<Batch> draws;
 
     void wait() {
         if (last)
@@ -286,26 +270,24 @@ struct Gpu::Impl {
                                     options:MTLResourceStorageModePrivate];
     }
 
-    // The texture of a strip, decoded again when the bytes it occupies have changed since its last use.
-    id<MTLTexture> texture(const Strip& s, const Hardware& hw, const uint32_t* palette, uint64_t render,
+    // The texture of a draw, decoded again when the bytes it occupies have changed since its last use.
+    id<MTLTexture> texture(const render::Draw& d, const Frame& frame, const Hardware& hw, uint64_t render,
                            uint64_t& decoded, uint64_t& untextured) {
         Impl& m = *this;
-        TextureFormat f;
-        const uint32_t stride = (hw.registers[kTextControl] & 31) * 32;
+        const TextureFormat& f = d.texture;
+        const uint32_t* palette = frame.palette;
         auto without = [&](const char* why) {
             static std::vector<uint32_t> shown;
             ++untextured;
-            if (std::getenv("IKARUGA_RENDER_DEBUG") && std::find(shown.begin(), shown.end(), s.tcw) == shown.end()) {
-                shown.push_back(s.tcw);
-                std::fprintf(stderr, "render: tcw %08x tsp %08x drawn without its texture: %s\n", s.tcw, s.tsp, why);
+            if (std::getenv("IKARUGA_RENDER_DEBUG") && std::find(shown.begin(), shown.end(), f.address) == shown.end()) {
+                shown.push_back(f.address);
+                std::fprintf(stderr, "render: the texture at %06x drawn without itself: %s\n", f.address, why);
             }
             return m.white;
         };
-        if (!describe_texture(s.tcw, s.tsp, stride, f))
+        if (!d.texture_readable)
             return without("an encoding the decoder does not read");
-        const uint64_t key = s.tcw | static_cast<uint64_t>(s.tsp & 0x3F) << 32 |
-                             static_cast<uint64_t>(hw.registers[kPalRamCtrl] & 3) << 38;
-        Texture& t = m.textures[key];
+        Texture& t = m.textures[texture_key(f, frame.palette_format)];
         if (t.texture && t.used == render)
             return t.texture;
         uint32_t first, size;
@@ -458,78 +440,60 @@ void Gpu::last_render(double& gpu_ms, uint32_t& fragments) {
             fragments += static_cast<const uint32_t*>(impl_->counters.contents)[b];
 }
 
-void Gpu::render(const DisplayList& list, const Hardware& hw) {
+void Gpu::render(const DisplayList& list, const Hardware& hw) { render(translate(list, hw), hw); }
+
+void Gpu::render(const Frame& frame, const Hardware& hw) {
     Impl& m = *impl_;
     if (!m.device)
         return;
     // The CPU writes textures and the vertex buffer the last render may still read.
     m.wait();
-    const uint32_t* regs = hw.registers;
-    uint32_t palette[1024];
-    unpack_palette(regs + kPaletteRam, regs[kPalRamCtrl], palette);
     const uint64_t render = renders + 1;
 
-    // The background plane: an untextured one fills the screen with its colour at its depth.
-    const float background_depth = std::max(as_float(regs[kIspBackgndD]), 0.0f);
-    MTLClearColor background = MTLClearColorMake(0, 0, 0, 1);
-    {
-        const uint32_t tag = regs[kIspBackgndT], skip = (tag >> 24) & 7;
-        const uint32_t base = ((regs[kParamBase] & 0xF00000) + ((tag >> 3) & 0x1FFFFF) * 4) & 0x7FFFFF;
-        const uint32_t isp = word32(hw, base);
-        if (!((isp >> 25) & 1) && skip >= 1) {
-            const uint32_t argb = word32(hw, base + 12 + (tag & 7) * (3 + skip) * 4 + 12);
-            background = MTLClearColorMake(((argb >> 16) & 255) / 255.0, ((argb >> 8) & 255) / 255.0,
-                                           (argb & 255) / 255.0, (argb >> 24) / 255.0);
-        }
-    }
-    float z_scale = std::max(list.max_z, background_depth);
+    const float background_depth = frame.background_depth;
+    const uint32_t argb = frame.background;
+    const MTLClearColor background = MTLClearColorMake(((argb >> 16) & 255) / 255.0, ((argb >> 8) & 255) / 255.0,
+                                                       (argb & 255) / 255.0, (argb >> 24) / 255.0);
+    float z_scale = std::max(frame.max_z, background_depth);
     if (!(z_scale > 0.0f))
         z_scale = 1.0f;
 
-    // The frame's clip, from FB_X_CLIP and FB_Y_CLIP, the last pixel included.
-    const uint32_t xc = regs[kFbXClip], yc = regs[kFbYClip];
-    const int clip_x0 = static_cast<int>(xc & 0x7FF), clip_x1 = static_cast<int>((xc >> 16) & 0x7FF) + 1;
-    const int clip_y0 = static_cast<int>(yc & 0x3FF), clip_y1 = static_cast<int>((yc >> 16) & 0x3FF) + 1;
-
     m.draws.clear();
     m.triangles.clear();
-    const float alpha_ref = static_cast<float>(regs[kPtAlphaRef] & 255) / 255.0f;
     for (List which : {List::Opaque, List::PunchThrough, List::Translucent}) {
-        const auto& strips = list.lists[static_cast<unsigned>(which)];
-        for (size_t index = 0; index < strips.size(); ++index) {
-            const Strip& s = strips[index];
-            const uint32_t compare_mode = s.isp >> 29;
-            if (compare_mode == 0)
-                continue;  // never passes
-            Draw d{};
+        uint32_t index = 0;  // the draw's place in its list
+        for (const render::Draw& s : frame.draws) {
+            if (s.list != which)
+                continue;
+            const uint32_t order = index++;
+            if (s.depth == DepthTest::Never)
+                continue;
+            Batch d{};
             d.first = static_cast<uint32_t>(m.triangles.size());
-            const bool flat = !(s.pcw & 2);
             for (uint32_t i = 0; i + 2 < s.count; ++i) {
-                Vertex t[3] = {list.vertices[s.first + i], list.vertices[s.first + i + 1],
-                               list.vertices[s.first + i + 2]};
+                Vertex t[3] = {frame.vertices[s.first + i], frame.vertices[s.first + i + 1],
+                               frame.vertices[s.first + i + 2]};
                 // A flat strip takes each triangle's colours from its last vertex.
-                if (flat) {
+                if (!s.gouraud) {
                     t[0].base = t[1].base = t[2].base;
                     t[0].offset = t[1].offset = t[2].offset;
                 }
                 m.triangles.insert(m.triangles.end(), t, t + 3);
             }
             d.count = static_cast<uint32_t>(m.triangles.size()) - d.first;
-            const uint32_t tsp = s.tsp;
             d.translucent = which == List::Translucent;
-            d.pipeline = (tsp >> 29) | ((tsp >> 26) & 7) << 3;
+            d.pipeline = static_cast<uint32_t>(s.source) | static_cast<uint32_t>(s.target) << 3;
             // A translucent polygon tests depth but does not write it, whatever its ISP word says: the
             // hardware blends each pixel's translucent layers in depth order, so none hides another.
-            const bool write = !((s.isp >> 26) & 1) && !d.translucent;
-            d.depth = compare_mode | write << 3;
-            const bool textured = s.pcw & 8;
-            d.texture = textured ? m.texture(s, hw, palette, render, textures_decoded, untextured) : m.white;
-            const uint32_t filter = (tsp >> 13) & 3;
-            const bool mipmapped = textured && (s.tcw >> 31);
-            d.sampler = (filter != 0) | mipmapped << 1 | (filter >= 2) << 2 | ((tsp >> 16) & 1) << 3 |
-                        ((tsp >> 15) & 1) << 4 | ((tsp >> 18) & 1) << 5 | ((tsp >> 17) & 1) << 6;
-            int x0 = clip_x0, y0 = clip_y0, x1 = clip_x1, y1 = clip_y1;
-            if (s.clip_mode == 2) {
+            const bool write = s.depth_write && !d.translucent;
+            d.depth = static_cast<uint32_t>(s.depth) | write << 3;
+            d.texture = s.textured ? m.texture(s, frame, hw, render, textures_decoded, untextured) : m.white;
+            const uint32_t filter = static_cast<uint32_t>(s.filter);
+            const bool mipmapped = s.textured && s.texture.mipmapped;
+            d.sampler = (filter != 0) | mipmapped << 1 | (filter >= 2) << 2 | s.clamp_u << 3 | s.clamp_v << 4 |
+                        s.flip_u << 5 | s.flip_v << 6;
+            int x0 = frame.clip_x0, y0 = frame.clip_y0, x1 = frame.clip_x1, y1 = frame.clip_y1;
+            if (s.clip == Clip::Inside) {
                 x0 = std::max(x0, static_cast<int>(s.clip_x0));
                 y0 = std::max(y0, static_cast<int>(s.clip_y0));
                 x1 = std::min(x1, static_cast<int>(s.clip_x1));
@@ -542,16 +506,14 @@ void Gpu::render(const DisplayList& list, const Hardware& hw) {
             const auto sc = static_cast<NSUInteger>(m.scale);
             d.scissor = {static_cast<NSUInteger>(x0) * sc, static_cast<NSUInteger>(y0) * sc,
                          static_cast<NSUInteger>(x1 - x0) * sc, static_cast<NSUInteger>(y1 - y0) * sc};
-            d.uniforms.flags = textured | ((s.pcw >> 2) & 1) << 1 | ((tsp >> 20) & 1) << 2 | ((tsp >> 19) & 1) << 3 |
+            d.uniforms.flags = s.textured | s.offset_colour << 1 | s.use_alpha << 2 | s.ignore_texture_alpha << 3 |
                                (which == List::PunchThrough) << 4;
-            d.uniforms.shading = static_cast<int32_t>((tsp >> 6) & 3);
-            d.uniforms.fog = static_cast<int32_t>((tsp >> 22) & 3);
+            d.uniforms.shading = static_cast<int32_t>(s.shading);
+            d.uniforms.fog = static_cast<int32_t>(s.fog);
             d.uniforms.blend = d.pipeline;
-            d.uniforms.alpha_ref = alpha_ref;
-            d.uniforms.order = static_cast<uint32_t>(index);
-            // The mipmap D adjust counts in quarters, 4 being no change.
-            const uint32_t adjust = (tsp >> 8) & 15;
-            d.uniforms.lod_bias = mipmapped && adjust ? std::log2(static_cast<float>(adjust) / 4.0f) : 0.0f;
+            d.uniforms.alpha_ref = frame.alpha_ref;
+            d.uniforms.order = order;
+            d.uniforms.lod_bias = s.mipmap_bias;
             if (d.count && d.scissor.width > 0 && d.scissor.height > 0)
                 m.draws.push_back(d);
         }
@@ -588,20 +550,16 @@ void Gpu::render(const DisplayList& list, const Hardware& hw) {
         [blit fillBuffer:m.slices range:NSMakeRange(0, m.slices.length) value:0];
         [blit endEncoding];
 
-        id<MTLTexture> colour_target = m.target(regs[kFbWSof1] & 0xFFFFFF);
+        id<MTLTexture> colour_target = m.target(frame.target);
         const Screen screen{{2.0f / 640.0f, 2.0f / 480.0f, 1.0f / z_scale, 0.0f}};
         FogUniforms fog{};
-        colour_of(regs[kFogColRam], fog.table_colour);
-        colour_of(regs[kFogColVert], fog.vertex_colour);
-        // FOG_DENSITY: an 8-bit mantissa over 128, times 2 to a signed 8-bit exponent.
-        const uint32_t density = regs[kFogDensity];
-        fog.params[0] = static_cast<float>((density >> 8) & 255) / 128.0f *
-                        std::ldexp(1.0f, static_cast<int8_t>(density & 255));
+        colour_of(frame.fog_table_colour, fog.table_colour);
+        colour_of(frame.fog_vertex_colour, fog.vertex_colour);
+        fog.params[0] = frame.fog_density;
         fog.params[1] = z_scale;
         for (int i = 0; i < 128; ++i) {
-            const uint32_t w = regs[kFogTable + i];
-            fog.table[i / 2][(i & 1) * 2] = static_cast<float>((w >> 8) & 255) / 255.0f;
-            fog.table[i / 2][(i & 1) * 2 + 1] = static_cast<float>(w & 255) / 255.0f;
+            fog.table[i / 2][(i & 1) * 2] = static_cast<float>(frame.fog_table[i][0]) / 255.0f;
+            fog.table[i / 2][(i & 1) * 2 + 1] = static_cast<float>(frame.fog_table[i][1]) / 255.0f;
         }
         const Lists lists{m.width, m.node_capacity};
         for (size_t b = 0; b < m.bands.size(); ++b) {
@@ -629,7 +587,7 @@ void Gpu::render(const DisplayList& list, const Hardware& hw) {
                 [enc setFragmentBuffer:m.slices offset:0 atIndex:6];
             }
             id<MTLRenderPipelineState> bound = nil;
-            for (const Draw& d : m.draws) {
+            for (const Batch& d : m.draws) {
                 const NSUInteger y0 = std::max<NSUInteger>(d.scissor.y, band.y0);
                 const NSUInteger y1 = std::min<NSUInteger>(d.scissor.y + d.scissor.height, band.y1);
                 if (y1 <= y0)
@@ -772,8 +730,10 @@ bool Gpu::read_target(uint32_t address, std::vector<uint32_t>& pixels, uint32_t&
 
 bool Gpu::read_texture(uint32_t tcw, uint32_t tsp, uint32_t palette_format, std::vector<uint32_t>& pixels,
                        uint32_t& width, uint32_t& height) {
-    const uint64_t key = tcw | static_cast<uint64_t>(tsp & 0x3F) << 32 | static_cast<uint64_t>(palette_format & 3) << 38;
-    auto it = impl_->textures.find(key);
+    TextureFormat f;
+    if (!describe_texture(tcw, tsp, 0, f))
+        return false;
+    auto it = impl_->textures.find(texture_key(f, palette_format & 3));
     return it != impl_->textures.end() && impl_->download(it->second.texture, 0, pixels, width, height);
 }
 

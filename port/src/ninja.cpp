@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include "decomp.h"
+#include "diff.h"
 #include "dream/runtime/sh4/ops.h"
 
 namespace game {
@@ -94,6 +95,12 @@ Float njSin(Angle n) { return fsca(n).s; }
 Float njCos(Angle n) { return fsca(n).c; }
 
 // The square root of a negative number is the negative root of its magnitude.
+// The tangent as fsca's sine over its cosine.
+Float njTan(Angle n) {
+    diff::Check check("njTan", 0x8C01577Cu, n);
+    const dream::sh4::detail::SinCos sc = fsca(n);
+    return check.returns(sc.s / sc.c);
+}
 Float njSqrt(Float n) { return 0.0f > n ? -std::sqrt(std::fabs(n)) : std::sqrt(n); }
 
 void njUnitMatrix(gptr<NJS_MATRIX> m) {
@@ -263,6 +270,170 @@ void njCalcPointEx(gptr<NJS_POINT3> ps, gptr<NJS_POINT3> pd) {
     for (int i = 0; i < 16; ++i) mat[i] = X(i);
     const Vec4 r = ftrv(mat, guest::load<float>(ps.a), guest::load<float>(ps.a + 4), guest::load<float>(ps.a + 8), 1.0f);
     for (uint32_t i = 0; i < 3; ++i) guest::store<float>(pd.a + 4 * i, r.v[i]);
+}
+
+// The point ps through the matrix m, or for m 0 through the current matrix, to pd. Through m, each
+// coordinate is the product of (x, y, z, 1) with a column, and the machine code stores x after it
+// reads the second column and y after it reads the third.
+void njCalcPoint(gptr<NJS_MATRIX> m, gptr<NJS_POINT3> ps, gptr<NJS_POINT3> pd) {
+    diff::Check check("njCalcPoint", 0x8C014508u, m, ps, pd);
+    const float v[4] = {guest::load<float>(ps.a), guest::load<float>(ps.a + 4), guest::load<float>(ps.a + 8), 1.0f};
+    if (!m.a) {
+        float mat[16];
+        for (int i = 0; i < 16; ++i) mat[i] = X(i);
+        const Vec4 r = ftrv(mat, v[0], v[1], v[2], v[3]);
+        for (uint32_t i = 3; i-- > 0;) guest::store<float>(pd.a + 4 * i, r.v[i]);
+        return;
+    }
+    const auto column = [m](int c, float (&out)[4]) {
+        for (int i = 0; i < 4; ++i) out[i] = get(m, 4 * i + c);
+    };
+    float c0[4], c1[4], c2[4];
+    column(0, c0);
+    const float x = fipr(v, c0);
+    column(1, c1);
+    guest::store<float>(pd.a, x);
+    const float y = fipr(v, c1);
+    column(2, c2);
+    guest::store<float>(pd.a + 4, y);
+    guest::store<float>(pd.a + 8, fipr(v, c2));
+}
+
+// The vector vs through the matrix m without its translation, or for m 0 through the current
+// matrix, to vd.
+void njCalcVector(gptr<NJS_MATRIX> m, gptr<NJS_VECTOR> vs, gptr<NJS_VECTOR> vd) {
+    diff::Check check("njCalcVector", 0x8C014564u, m, vs, vd);
+    const float v[4] = {guest::load<float>(vs.a), guest::load<float>(vs.a + 4), guest::load<float>(vs.a + 8), 0.0f};
+    float r[3];
+    if (!m.a) {
+        float mat[16];
+        for (int i = 0; i < 16; ++i) mat[i] = X(i);
+        const Vec4 t = ftrv(mat, v[0], v[1], v[2], v[3]);
+        for (int i = 0; i < 3; ++i) r[i] = t.v[i];
+    }
+    else {
+        for (int c = 0; c < 3; ++c) {
+            const float column[4] = {get(m, c), get(m, 4 + c), get(m, 8 + c), 0.0f};
+            r[c] = fipr(v, column);
+        }
+    }
+    for (uint32_t i = 3; i-- > 0;) guest::store<float>(vd.a + 4 * i, r[i]);
+}
+
+namespace {
+
+// The matrix `a` times each column of the current matrix, or of the matrix at `md`, which takes the
+// products. The machine code reads all four columns before it stores the first.
+void post_multiply(const float (&a)[16], gptr<NJS_MATRIX> md) {
+    float r[16];
+    for (int c = 0; c < 16; c += 4) {
+        const auto in = [&](int i) { return md.a ? get(md, c + i) : X(c + i); };
+        const Vec4 v = ftrv(a, in(0), in(1), in(2), in(3));
+        for (int i = 0; i < 4; ++i) r[c + i] = v.v[i];
+    }
+    for (int i = 0; i < 16; ++i) {
+        if (md.a)
+            put(md, i, r[i]);
+        else
+            X(i) = r[i];
+    }
+}
+
+}  // namespace
+
+// The current matrix, or the matrix at md, becomes ms times it.
+void njPostMultiMatrix(gptr<NJS_MATRIX> md, gptr<NJS_MATRIX> ms) {
+    diff::Check check("njPostMultiMatrix", 0x8C0151BCu, md, ms);
+    float a[16];
+    for (int i = 0; i < 16; ++i) a[i] = get(ms, i);
+    post_multiply(a, md);
+}
+
+// Pushes the current matrix and, for m other than 0, makes the matrix at m the current one.
+Bool njPushMatrix(gptr<NJS_MATRIX> m) {
+    diff::Check check("njPushMatrix", 0x8C0152ACu, m);
+    if (!njPushMatrixEx())
+        return check.returns(Bool(0));
+    if (m.a)
+        for (int i = 0; i < 16; ++i) X(i) = get(m, i);
+    return check.returns(Bool(1));
+}
+
+// The view from `eye` to `center` with `up` as the up direction: the current matrix becomes the
+// camera's matrix times it. The z axis points from the center to the eye, the y axis is `up` without
+// its part along z, and the x axis is y times z, each normalized with fsrra.
+void njCameraExLookAt(gptr<NJS_POINT3> eye, gptr<NJS_POINT3> center, gptr<NJS_VECTOR> up) {
+    diff::Check check("njCameraExLookAt", 0x8C015EE2u, eye, center, up);
+    const auto at = [](uint32_t base, uint32_t i) { return guest::load<float>(base + 4 * i); };
+    const float ex = at(eye.a, 0), ey = at(eye.a, 1), ez = at(eye.a, 2);
+    float zx = ex - at(center.a, 0), zy = ey - at(center.a, 1), zz = ez - at(center.a, 2);
+    float inverse = 1.0f / std::sqrt(std::fmaf(zz, zz, std::fmaf(zx, zx, zy * zy)));
+    zy *= inverse;
+    zx *= inverse;
+    zz *= inverse;
+    const float ux = at(up.a, 0), uy = at(up.a, 1), uz = at(up.a, 2);
+    const float along = std::fmaf(uz, zz, std::fmaf(ux, zx, zy * uy));
+    float yx = ux - zx * along, yy = uy - zy * along, yz = uz - zz * along;
+    inverse = 1.0f / std::sqrt(std::fmaf(yz, yz, std::fmaf(yx, yx, yy * yy)));
+    yz *= inverse;
+    yy *= inverse;
+    yx *= inverse;
+    const float xx = zz * yy - zy * yz, xy = zx * yz - zz * yx, xz = zy * yx - zx * yy;
+    const float a[16] = {xx,
+                         yx,
+                         zx,
+                         0.0f,
+                         xy,
+                         yy,
+                         zy,
+                         0.0f,
+                         xz,
+                         yz,
+                         zz,
+                         0.0f,
+                         (-(ex * xx) - ey * xy) - ez * xz,
+                         (-(ex * yx) - ey * yy) - ez * yz,
+                         (-(ex * zx) - ey * zy) - ez * zz,
+                         1.0f};
+    post_multiply(a, gptr<NJS_MATRIX>(0));
+}
+
+// Turns the current matrix about z by `ang`: Ninja pops it, turns its x and y columns with fsca's
+// sine and cosine and pushes the result as the current matrix.
+void njRotateZCameraEx(Angle ang) {
+    diff::Check check("njRotateZCameraEx", 0x8C015C74u, ang);
+    const dream::sh4::detail::SinCos sc = fsca(ang);
+    float b[16];
+    for (int i = 0; i < 16; ++i) b[i] = X(i);
+    njPopMatrixEx();
+    guest::Frame frame(64);
+    const gptr<NJS_MATRIX> a(frame.top - 64);
+    for (int i = 0; i < 16; ++i) put(a, i, b[i]);
+    // The first row rounds its cosine product before the sum, the others their sine product.
+    for (int r = 0; r < 16; r += 4) {
+        put(a, r, r == 0 ? std::fmaf(sc.s, b[1], b[0] * sc.c) : std::fmaf(sc.c, b[r], b[r + 1] * sc.s));
+        put(a, r + 1, b[r + 1] * sc.c - b[r] * sc.s);
+    }
+    njPushMatrix(a);
+}
+
+// The camera's view: from its position (0) towards the point that its vector (12) points to, or to
+// that vector itself for a camera of type 2 (28), with the up direction at 0x8C0CA660, then turned
+// by its roll (24) and seen through its angle of view (26).
+void njSetCamera(gptr<NJS_CAMERA> camera) {
+    diff::Check check("njSetCamera", 0x8C016096u, camera);
+    const uint32_t c = camera.a;
+    guest::Frame frame(12);
+    const uint32_t target = frame.top - 12;
+    for (uint32_t i = 0; i < 12; i += 4) {
+        if (guest::load<int32_t>(c + 28) == 2)
+            guest::store<uint32_t>(target + i, guest::load<uint32_t>(c + 12 + i));
+        else
+            guest::store<float>(target + i, guest::load<float>(c + i) + guest::load<float>(c + 12 + i));
+    }
+    njCameraExLookAt(gptr<NJS_POINT3>(c), gptr<NJS_POINT3>(target), gptr<NJS_VECTOR>(0x8C0CA660u));
+    njRotateZCameraEx(static_cast<Angle>(guest::load<int16_t>(c + 24)));
+    njSetPerspective(static_cast<Angle>(guest::load<int16_t>(c + 26)));
 }
 
 }  // namespace game

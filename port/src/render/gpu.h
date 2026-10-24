@@ -10,19 +10,11 @@
 #include <string>
 #include <vector>
 
-#include "render/ta.h"
+#include "render/draw.h"
 
 struct SDL_Window;
 
 namespace render {
-
-// What a render reads besides the display list: the PowerVR's registers (0x2000 bytes from
-// 0x005F8000, palette memory and the fog table included) and video memory in its 64-bit view.
-struct Hardware {
-    const uint32_t* registers = nullptr;
-    const uint8_t* vram = nullptr;
-    size_t vram_size = 0;
-};
 
 class Gpu {
 public:
@@ -34,6 +26,9 @@ public:
     // `window` may be null for a run without one; one given must have been made with
     // SDL_WINDOW_METAL. `scale` multiplies the 640x480 the geometry is drawn at.
     bool create(SDL_Window* window, unsigned scale, std::string& error);
+    // Draws a frame into its target. Its textures come from `hw`'s video memory.
+    void render(const Frame& frame, const Hardware& hw);
+    // Draws the frame that translate() makes of `list`.
     void render(const DisplayList& list, const Hardware& hw);
     // Shows the displayed framebuffer in the window, letterboxed to 4:3, and over it the overlay
     // given last, premultiplied RGBA at the window's pixel size. Null pixels show none.

@@ -804,6 +804,21 @@ class Converter:
                 decl_lines.append(f"  undefined8 &{s} = _frame.at<undefined8>({off});")
             elif s.startswith("stack0x"):
                 decl_lines.append(f"  uint8_t &{s} = _frame.at<uint8_t>({off});")
+        # A stack argument that the body uses only through its own address. A variadic function
+        # passes the address of its first value to vsprintf, and the values are the words from there
+        # on in the caller's frame: the address is the argument's place there. Ghidra 12.2 names the
+        # place after the argument, 12.1.4 wrote stack0x.
+        for name, loc in locals_by_name.items():
+            off = loc.get("stack")
+            if loc.get("param", -1) < 0 or off is None or off < 0:
+                continue
+            own_address = r"&\s*" + re.escape(name) + r"\b(?!\s*(?:->|\.|\[))"
+            uses = len(re.findall(r"\b" + re.escape(name) + r"\b", rest))
+            if uses and len(re.findall(own_address, rest)) == uses:
+                place = f"stack0x{off:08x}"
+                if place not in stack_refs:
+                    decl_lines.append(f"  uint8_t &{place} = _frame.at<uint8_t>({off});")
+                rest = re.sub(own_address, "&" + place, rest)
         if frame_size or any("_frame." in d for d in decl_lines):
             decl_lines.insert(0, f"  guest::Frame _frame(0x{frame_size:x});")
         # The address and the arguments are for the differential tests (port/include/diff.h).

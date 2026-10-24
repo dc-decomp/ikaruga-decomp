@@ -1,6 +1,6 @@
 // The native window: SDL3 for the window, the keyboard and gamepads, and the Metal renderer for
-// the picture. It decodes each display list the game hands the PowerVR, draws it, and at each
-// vertical blank shows the framebuffer the console would scan out.
+// the picture. It decodes each display list the game hands the PowerVR into a typed frame (draw.h),
+// draws it, and at each vertical blank shows the framebuffer the console would scan out.
 //
 // Keys: F1 (or a gamepad's back button) opens the controller screen, F10 shows the frame rate, F11
 // writes the last display list with video memory and the registers, as IKARUGA_DUMP_TA does, F12
@@ -8,6 +8,7 @@
 #pragma once
 
 #include <chrono>
+#include <functional>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -32,6 +33,9 @@ public:
 
     bool open(unsigned scale, const std::string& title, std::string& error);
     void render(const std::vector<uint32_t>& stream, const Hardware& hw);
+    // Called with each frame between its translation and its drawing (draw.h), where a mod can read
+    // and change the frame's draws and settings.
+    std::function<void(Frame&)> on_frame;
     // Reads the events and shows the scanned-out framebuffer. `guest_seconds` is the console's
     // time, for the frame counter. False once the window is closed.
     bool present(const Hardware& hw, double guest_seconds);

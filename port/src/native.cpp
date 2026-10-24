@@ -1,5 +1,5 @@
-// Functions of the game written natively: the C library's single-precision math, and the one
-// Ninja function the decompiler cannot handle.
+// Functions of the game written natively: the C library's single-precision math, the one Ninja
+// function the decompiler cannot handle and Shinobi's cache functions.
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -7,6 +7,7 @@
 #include <string>
 
 #include "decomp.h"
+#include "diff.h"
 
 namespace game {
 
@@ -43,6 +44,15 @@ void njInitGlobal2() {
     set(b + 0x10, f(b + 0x24) - f(a + 0x0C));
     set(b + 0x14, f(b + 0x1C) - f(a + 0x0C));
 }
+
+// Shinobi's operand cache functions. The port has no cache: DMA reads and writes guest memory
+// itself. The machine code masks the interrupts, saves the old mask in a stack word and jumps to
+// an uncached copy of itself, which restores the mask from that word. C cannot pass the word, so
+// these leave SR alone.
+void syCacheOCBI(gptr<void> address, Uint32 size) { diff::Check check("syCacheOCBI", 0x8C04241Eu, address, size); }
+void syCacheOCBP(gptr<void> address, Uint32 size) { diff::Check check("syCacheOCBP", 0x8C04267Au, address, size); }
+void syCacheOCWB(gptr<void> address, Uint32 size) { diff::Check check("syCacheOCWB", 0x8C0428CAu, address, size); }
+void syCachePurgeAll() { diff::Check check("syCachePurgeAll", 0x8C042B58u); }
 
 }  // namespace game
 

@@ -86,6 +86,10 @@ std::unordered_map<uint32_t, Function> g_functions;
 bool g_active = false;
 uint32_t g_address = 0, g_entry_sp = 0;
 CallArgs g_args;
+// The machine code's result, and the C++ body's if it noted one.
+CallResult g_expected_result;
+bool g_result_noted = false, g_result_fpu = false;
+uint32_t g_result = 0;
 
 // A saved stack pointer differs between the two runs: the interpreter and the C++ keep their
 // frames at different depths.
@@ -212,7 +216,7 @@ uint8_t g_before_sq[64];
 
 uint64_t activity() {
     const hw::Stats& s = hw::stats();
-    return s.interrupts + s.events;
+    return s.interrupts + s.events + s.video_events;
 }
 
 struct Init {
@@ -408,7 +412,7 @@ bool shadow(uint32_t address, const char* name, const CallArgs& args) {
     const char* why = nullptr;
     try {
         g_skip_next_run = true;
-        sh4::run(address, args);
+        g_expected_result = sh4::run(address, args);
     }
     catch (const Abort& a) {
         why = a.why;
@@ -441,11 +445,18 @@ bool shadow(uint32_t address, const char* name, const CallArgs& args) {
     g_active = true;
     g_address = address;
     g_args = args;
+    g_result_noted = false;
     g_entry_sp = sp;
     g_activity = activity();
     g_testing = true;
     g_hw_accesses = 0;
     return true;
+}
+
+void note_result(uint32_t bits, bool fpu) {
+    g_result_noted = true;
+    g_result = bits;
+    g_result_fpu = fpu;
 }
 
 void finish(bool unwinding) {
@@ -468,7 +479,11 @@ void finish(bool unwinding) {
     const bool vram_differs = std::memcmp(g_expected_vram.data(), guest::vram(), hw::kVramSize) != 0;
     const bool xf_differs = std::memcmp(g_expected_regs.xf, cpu::xf, sizeof cpu::xf) != 0;
     const bool ta_differs = g_shadow_ta != g_native_ta;
-    if (!ram_differs && !vram_differs && !xf_differs && !ta_differs)
+    uint32_t expected_result = g_expected_result.r0;
+    if (g_result_fpu)
+        std::memcpy(&expected_result, &g_expected_result.fr0, 4);
+    const bool result_differs = g_result_noted && expected_result != g_result;
+    if (!ram_differs && !vram_differs && !xf_differs && !ta_differs && !result_differs)
         return;
     // Twice: once to count, once to print.
     for (int pass = 0; pass < 2; ++pass) {
@@ -505,6 +520,12 @@ void finish(bool unwinding) {
                         std::fprintf(stderr, "\n");
                     }
             }
+        }
+        if (result_differs) {
+            ++count;
+            if (pass == 1)
+                std::fprintf(stderr, "    %s: machine code %08x, C++ %08x\n", g_result_fpu ? "fr0" : "r0",
+                             expected_result, g_result);
         }
         for (int i = 0; i < 16; ++i)
             if (std::memcmp(&g_expected_regs.xf[i], &cpu::xf[i], 4) != 0) {

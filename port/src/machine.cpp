@@ -21,8 +21,11 @@
 #include "dream/runtime/sh4/dmac.h"
 #include "dream/runtime/system.h"
 #include "diff.h"
+#include "frame.h"
 #include "hw.h"
 #include "pvr.h"
+#include "sh4/sh4.h"
+#include "video.h"
 
 namespace trace {
 void print_stack(std::FILE* out);
@@ -47,7 +50,11 @@ struct SerialPort final : dream::mem::MmioHandler {
 
 struct Machine {
     dream::System sys;
-    Pvr pvr{sys.spg, sys.holly, sys.memory.vram(), dream::mem::DcMemory::kVramSize};
+    Video video{sys.sched};
+    Pvr pvr{video, sys.memory.vram(), dream::mem::DcMemory::kVramSize};
+    // The frame clock's events that wait for the interrupt mask, one bit for each vector, as
+    // Holly's status bits wait.
+    uint32_t video_pending = 0;
     // SysBlock holds Holly's interrupt registers, and its channel-2 DMA needs dream-recomp's
     // PowerVR to send to. Kamui no longer starts that DMA (kmiLaunchQ, kamui.cpp), so that PowerVR
     // is not mapped.
@@ -95,10 +102,15 @@ struct Machine {
         mem.map_mmio(dream::maple::Bus::kBase, dream::maple::Bus::kEnd, &maple);
         mem.map_mmio(dream::aica::Aica::kRegBase, dream::aica::Aica::kRegEnd, &aica);
         mem.map_mmio(dream::aica::Rtc::kBase, dream::aica::Rtc::kEnd, &aica_rtc);
-        sys.spg.on_vblank_out = [this] {
+        // dream-recomp's video timing runs one event a line; the frame clock (video.h) replaces it.
+        for (int id = 0; id < video.event(); ++id)
+            if (sys.sched.name(id) == "spg-line")
+                sys.sched.cancel(id);
+        video.on_vblank_out = [this] {
             for (auto& h : vblank_hooks)
                 h();
         };
+        video.on_line = [this](uint32_t vector) { video_pending |= 1u << ((vector - 0x900u) >> 4); };
         pvr.on_render = [this](const std::vector<uint32_t>& stream) {
             for (auto& h : render_hooks)
                 h(stream);
@@ -110,7 +122,7 @@ struct Machine {
                 if (!unmapped_seen.insert(addr).second)
                     return;
                 std::fprintf(stderr, "unmapped %s of 0x%08x (size %u) at frame %llu\n", is_write ? "write" : "read",
-                             addr, size, static_cast<unsigned long long>(sys.spg.frames()));
+                             addr, size, static_cast<unsigned long long>(video.frames()));
                 trace::print_stack(stderr);
             };
     }
@@ -120,6 +132,33 @@ struct Machine {
 Machine& m() {
     static Machine machine;
     return machine;
+}
+
+// The frame clock's events: Shinobi's handler of the video interrupt calls each event's chain at
+// level 6, with INTEVT 0x320, which the port does directly when SR lets level 6 in and Holly's
+// level-6 mask has the event. The handlers run below the interrupted code's frames.
+void deliver_video() {
+    Machine& mm = m();
+    while (mm.video_pending && !(cpu::sr & 0x10000000u) && ((cpu::sr >> 4) & 15) < 6) {
+        const uint32_t ready = mm.video_pending & mm.sys.holly.iml6nrm;
+        if (!ready)
+            return;
+        const uint32_t bit = static_cast<uint32_t>(__builtin_ctz(ready));
+        mm.video_pending &= ~(1u << bit);
+        ++mm.stats.video_events;
+        const uint32_t saved_sr = cpu::sr;
+        cpu::sr = (cpu::sr & ~0xF0u) | 0x60u;
+        guest::store<uint32_t>(0xFF000028u, 0x320);
+        guest::store<uint32_t>(0x8C043ED8u, 0x320);
+        CallArgs args;
+        args.r[0] = 0x900u + 16 * bit;
+        args.nr = 1;
+        const uint32_t saved_sp = guest::sp;
+        guest::sp = std::min(guest::sp, sh4::active_stack());
+        guest::call(0x8C042F00u, args);  // syChainMasterHandler
+        guest::sp = saved_sp;
+        cpu::sr = saved_sr;
+    }
 }
 
 // Delivers what the SH-4's interrupt controller selects against SR. A handler clears its source
@@ -177,22 +216,46 @@ void write_users() {
 
 // ---- memory ------------------------------------------------------------------------------------
 
+namespace {
+
+// Video memory's 32-bit path: memory, which the differential test saves and restores, so a shadow
+// writes it and the test does not count it as a register access.
+bool vram32(uint32_t a) { return (a & 0x1F000000u) == 0x05000000u; }
+
+// The video timing's registers, which are the frame clock's. dream-recomp's memory map gives them
+// to its own timing, which the port does not run.
+bool video_register(uint32_t a) {
+    const uint32_t p = a & 0x1FFFFFFFu;
+    return (p >= Video::kRegLo && p < Video::kRegHi) || p == Video::kStatus;
+}
+
+}  // namespace
+
 uint32_t read(uint32_t a, unsigned size) {
-    diff::on_access();
+    if (!vram32(a))
+        diff::on_access();
     if (g_users)
         note_use('r', a);
     tick(100);
+    if (video_register(a))
+        return m().video.read(a & 0x1FFFFFFFu);
     auto& mem = m().sys.memory;
     return size == 1 ? mem.read8(a) : size == 2 ? mem.read16(a) : mem.read32(a);
 }
 
 void write(uint32_t a, uint32_t v, unsigned size) {
-    diff::on_access();
-    if (diff::g_shadow)
-        return;
+    if (!vram32(a)) {
+        diff::on_access();
+        if (diff::g_shadow)
+            return;
+    }
     if (g_users)
         note_use('w', a);
     tick(100);
+    if (video_register(a)) {
+        m().video.write(a & 0x1FFFFFFFu, v);
+        return;
+    }
     auto& mem = m().sys.memory;
     if (size == 1)
         mem.write8(a, static_cast<uint8_t>(v));
@@ -211,6 +274,16 @@ void capture_flushes(std::vector<SqFlush>* into) { g_capture = into; }
 void prefetch(uint32_t address) {
     if (address < 0xE0000000u || address >= 0xE4000000u)
         return;
+    const uint8_t* queue = guest::store_queues() + (address & 0x20u);
+    if (!g_capture && frame::in_lists(address)) {
+        // The frame's display list (frame.h). The differential test compares what the machine code
+        // and the native code send to it, and a shadow's parameters go nowhere else.
+        if (diff::g_shadow || diff::g_testing)
+            diff::note_ta_flush(address & ~0x1Fu, queue);
+        if (!diff::g_shadow)
+            frame::flush(address, queue);
+        return;
+    }
     const uint32_t dest = flush_destination(address) & 0x1FFFFFFFu;
     if (g_capture) {
         SqFlush f{address, {}};
@@ -249,6 +322,7 @@ void tick(uint32_t cycles) {
         ++mm.stats.events;
         mm.sys.sched.advance_to(mm.sys.ctx.cycles);
     }
+    deliver_video();
     deliver();
     --mm.tick_depth;
 }
@@ -283,12 +357,13 @@ void report_interrupts(std::FILE* out) {
 
 // ---- devices -----------------------------------------------------------------------------------
 
-uint64_t frames() { return m().sys.spg.frames(); }
+uint64_t frames() { return m().video.frames(); }
 Stats& stats() { return m().stats; }
 
 dream::System& system() { return m().sys; }
 const uint32_t* pvr_registers() { return m().pvr.registers(); }
 uint64_t renders() { return m().pvr.renders; }
+void render(const std::vector<uint32_t>& stream) { m().pvr.draw(stream); }
 
 void pvr_transfer(uint32_t destination, uint32_t source, uint32_t bytes) {
     if (!guest::is_ram(source) || !guest::is_ram(source + bytes - 1)) {
