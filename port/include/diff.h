@@ -9,8 +9,10 @@
 // The interpreter's run is a shadow: it drops register writes and store-queue flushes, and time
 // does not pass in it. A body that accesses registers can start a DMA that the shadow did not, so
 // a difference there is only listed. A shadow that reaches state outside guest memory (the drive, the flash, an
-// exit) or does not return within its budget is abandoned before it takes effect. A call during
-// which an interrupt or another hardware event happened proves nothing and does not count.
+// exit) or does not return within its budget is abandoned before it takes effect. In the C++ body
+// time passes, but the hardware's events and the interrupts wait until it returns. A body that
+// reads registers, sleeps or runs for longer than a frame gets them, and a call during which an
+// event happened proves nothing and does not count.
 #pragma once
 
 #include <cstdint>
@@ -55,6 +57,8 @@ inline bool logged(uint32_t address) {
 }
 extern int g_shadow;       // nonzero while the interpreter runs a shadow
 extern bool g_testing;     // while the C++ body of a tested call runs
+extern bool g_hold;        // the body's events wait until it returns
+extern uint64_t g_hold_from;  // the clock's cycles when the body started
 extern uint64_t g_hw_accesses;  // the register accesses of that body
 
 // A port function with state outside guest memory calls this first: a shadow must not reach it.
@@ -70,19 +74,30 @@ void count_access();
 // C++'s in the body. The test compares the two, as it compares memory.
 void note_ta_flush(uint32_t destination, const uint8_t* words);
 
-// At each register access.
-inline void on_access() {
+// At each register access. A body that reads registers gets the hardware's events: it can poll for
+// a DMA that its writes start, which the shadow's dropped writes do not.
+inline void on_access(bool read) {
     if (g_shadow)
         count_access();
-    else if (g_testing)
+    else if (g_testing) {
         ++g_hw_accesses;
+        if (read)
+            g_hold = false;
+    }
 }
+
+// A native body that answers from the port's own state, which its machine code cannot see, as the
+// native renderer's scenes: the call does not count.
+void own_state();
 
 // Prints a call of a function that IKARUGA_LOG_CALLS names: the frame and the argument registers.
 void log_arguments(const char* name, const CallArgs& args);
 
 // Records a C++ function entered during a test, for the report of the first call that differs.
 void log_call(const char* name, const CallArgs* args);
+// A call inside the body of a tested call. The test cannot run it, and a shadow calls the same
+// C++, so the report lists the functions that the run calls only there.
+void note_nested(uint32_t address, const char* name);
 // Records an entry into an interpreted function during a test.
 void log_interpreted(uint32_t address, const CallArgs& args);
 
@@ -112,6 +127,8 @@ public:
         if (g_shadow || g_testing) {
             if (g_shadow)
                 count_access();  // a wait loop in the C++ that the shadow calls
+            else
+                note_nested(address, name);
             CallArgs a;
             const bool placed = arguments(a, address, args...);
             log_call(name, placed ? &a : nullptr);
@@ -127,7 +144,7 @@ public:
             a.stack[i] = guest::load<uint32_t>(guest::sp + 4u * static_cast<uint32_t>(i));
         a.nr = 4;
         a.nfr = 8;
-        a.nstack = 16;
+        a.caller_frame = true;
         active_ = shadow(address, name, a);
     }
     ~Check() {

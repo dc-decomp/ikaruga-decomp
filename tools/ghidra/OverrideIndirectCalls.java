@@ -122,12 +122,14 @@ public class OverrideIndirectCalls extends GhidraScript {
                 while (ops.hasNext()) {
                     ghidra.program.model.pcode.PcodeOpAST op = ops.next();
                     int code = op.getOpcode();
+                    // Input 0 is the target, then the named parameters and r4 to r7, then the
+                    // first stack word.
+                    int first = 1 + withStackWords(callee, 0).getArguments().length;
                     if ((code != ghidra.program.model.pcode.PcodeOp.CALL
-                            && code != ghidra.program.model.pcode.PcodeOp.CALLIND) || op.getNumInputs() < 6) {
+                            && code != ghidra.program.model.pcode.PcodeOp.CALLIND) || op.getNumInputs() <= first) {
                         continue;
                     }
-                    // Input 0 is the target, 1 to 4 are r4 to r7, 5 is the first stack word.
-                    String format = constantString(op.getInput(5));
+                    String format = constantString(op.getInput(first));
                     if (format != null) {
                         HighFunctionDBUtil.writeOverride(e.getKey(), call.getAddress(),
                             withStackWords(callee, 1 + conversions(format)));
@@ -197,16 +199,25 @@ public class OverrideIndirectCalls extends GhidraScript {
         return n;
     }
 
-    // A variadic function's named parameters, filled up to r7, then `words` stack words.
+    // A variadic function's named parameters, its word ones filled up to r7, then `words` stack
+    // words. textPrintf's named parameters are floats in fr4 and fr5.
     private FunctionDefinitionDataType withStackWords(Function callee, int words) {
         FunctionDefinitionDataType sig = new FunctionDefinitionDataType(callee.getName() + "_words");
         DataType u4 = Undefined4DataType.dataType;
         java.util.List<ParameterDefinition> ps = new java.util.ArrayList<>();
+        int registers = 0;
         for (ghidra.program.model.listing.Parameter p : callee.getParameters()) {
             ps.add(new ParameterDefinitionImpl(p.getName(), p.getDataType(), null));
+            DataType t = p.getDataType();
+            if (t instanceof ghidra.program.model.data.TypeDef td) {
+                t = td.getBaseDataType();
+            }
+            if (!(t instanceof ghidra.program.model.data.AbstractFloatDataType)) {
+                registers++;
+            }
         }
-        while (ps.size() < 4) {
-            ps.add(new ParameterDefinitionImpl("r" + (4 + ps.size()), u4, null));
+        for (; registers < 4; registers++) {
+            ps.add(new ParameterDefinitionImpl("r" + (4 + registers), u4, null));
         }
         for (int k = 0; k < words; k++) {
             ps.add(new ParameterDefinitionImpl("stack" + k, u4, null));

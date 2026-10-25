@@ -372,6 +372,7 @@ dword kmiQueryFinishAllPacket() {
     if (!g_scenes.empty() || g_rendered) {
         // Its callers poll it in a loop until the scenes are on display: a safe point lets time
         // pass, so the vertical blanks that render and show them come in.
+        diff::own_state();
         hw::tick();
         return check.returns(dword(0xEEEE));
     }

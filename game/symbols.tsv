@@ -1949,6 +1949,9 @@
 0x0c081294	effectSpriteDrawPlain	user
 0x0c06a7a4	textDraw	user
 0x0c06a774	textWidth	user
+0x0c06b09c	textPrintf	user
+0x0c093a34	lensFlareCreate	user
+0x0c06f738	discErrorScreen	user
 0x0c0681c8	clipPlayArea	user
 0x0c068208	clipOff	user
 0x0c068230	viewPlayArea	user

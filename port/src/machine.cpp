@@ -4,6 +4,7 @@
 // code, so the port advances the clock at its safe points and delivers the interrupts that the
 // SH-4's controller selects to the game's handlers itself.
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <cstring>
 #include <map>
@@ -73,7 +74,8 @@ struct Machine {
     // Maple's registers: the controller and the memory card are native (input.cpp, saves.cpp), and
     // nothing starts a transfer.
     dream::mem::RegisterFile maple{dream::maple::Bus::kBase, (dream::maple::Bus::kEnd - dream::maple::Bus::kBase) / 4};
-    dream::maple::ControllerState pad;
+    std::array<dream::maple::ControllerState, 2> pads;  // ports A and B
+    bool second_pad = false;
     dream::aica::Aica aica{sys.sched, sys.holly, sys.memory};
     // The clock's registers: the game reads the time natively (clock.cpp).
     dream::mem::RegisterFile aica_rtc{dream::aica::Rtc::kBase, (dream::aica::Rtc::kEnd - dream::aica::Rtc::kBase) / 4};
@@ -233,7 +235,7 @@ bool video_register(uint32_t a) {
 
 uint32_t read(uint32_t a, unsigned size) {
     if (!vram32(a))
-        diff::on_access();
+        diff::on_access(true);
     if (g_users)
         note_use('r', a);
     tick(100);
@@ -245,7 +247,7 @@ uint32_t read(uint32_t a, unsigned size) {
 
 void write(uint32_t a, uint32_t v, unsigned size) {
     if (!vram32(a)) {
-        diff::on_access();
+        diff::on_access(false);
         if (diff::g_shadow)
             return;
     }
@@ -316,8 +318,10 @@ void tick(uint32_t cycles) {
     Machine& mm = m();
     if (mm.tick_depth > 4 || diff::g_shadow)
         return;
-    ++mm.tick_depth;
     mm.sys.ctx.cycles += cycles;
+    if (diff::g_hold && mm.sys.ctx.cycles - diff::g_hold_from < hw::kCpuHz / 60)
+        return;
+    ++mm.tick_depth;
     if (mm.sys.ctx.cycles >= mm.sys.sched.next_deadline()) {
         ++mm.stats.events;
         mm.sys.sched.advance_to(mm.sys.ctx.cycles);
@@ -329,6 +333,7 @@ void tick(uint32_t cycles) {
 
 // The SH-4's sleep: nothing happens until the next event.
 void sleep() {
+    diff::g_hold = false;  // a tested body that sleeps gets its event (diff.h)
     Machine& mm = m();
     const uint64_t next = mm.sys.sched.next_deadline();
     if (next != dream::sched::kNever && next > mm.sys.ctx.cycles)
@@ -378,7 +383,8 @@ void pvr_transfer(uint32_t destination, uint32_t source, uint32_t bytes) {
     }
 }
 dream::aica::Aica& aica() { return m().aica; }
-dream::maple::ControllerState& pad() { return m().pad; }
+dream::maple::ControllerState& pad(unsigned port) { return m().pads[port]; }
+bool& second_pad() { return m().second_pad; }
 void on_vblank(std::function<void()> hook) { m().vblank_hooks.push_back(std::move(hook)); }
 void on_render(std::function<void(const std::vector<uint32_t>&)> hook) {
     m().render_hooks.push_back(std::move(hook));

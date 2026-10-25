@@ -150,6 +150,9 @@ uint64_t g_limit = 0;  // run_regs: a test's bound on the instructions
 Cpu* g_active = nullptr;  // the innermost running interpreter, for reports
 
 void Cpu::unknown(uint16_t op) {
+    // A shadow that starts inside a function, after the prologue, returns through a frame it never
+    // pushed and runs into data.
+    diff::guard("runs into data");
     static int reported = 0;
     if (reported++ < 2) {
         std::fprintf(stderr, "sh4: unknown instruction %04x at %08x; last branches:\n", op, pc);
@@ -791,15 +794,18 @@ CallResult run(uint32_t entry, const CallArgs& args) {
     c.fpscr = cpu::fpscr & ~(kFR | kSZ);
     // A function that reads an object in a callee-saved register finds the C++ caller's there.
     for (int i = 8; i < 15; ++i)
-        c.r[i] = cpu::ctx[i];
+        c.r[i] = (args.nctx >> i & 1) ? args.ctx[i] : cpu::ctx[i];
     for (int i = 0; i < 4; ++i)
         c.r[4 + i] = args.r[i];
     for (int i = 0; i < 8; ++i)
         c.fr[4 + i] = args.fr[i];
-    // The stack arguments go below the guest stack's top, where the callee finds them at r15.
+    // The stack arguments go below the guest stack's top, where the callee finds them at r15. The
+    // callee's frame starts below them, as the C++ copies of functions that read their frames'
+    // leftovers expect.
     const uint32_t top = (guest::sp - guest::Frame::kPushRoom) & ~7u;
     c.r[15] = top - 4u * static_cast<uint32_t>(args.nstack);
-    for (int i = 0; i < args.nstack; ++i)
+    const int words = args.caller_frame ? 16 : args.nstack;
+    for (int i = 0; i < words; ++i)
         guest::store<uint32_t>(c.r[15] + 4u * static_cast<uint32_t>(i), args.stack[i]);
     c.pc = entry;
     c.pr = kReturn;

@@ -47,8 +47,9 @@ _quick_strcpy
 quick_strcpy1
 _slow_strcpy
 
-# SHC passes sprintf's format and values on the stack (port/include/native.h).
+# SHC passes the format and values of sprintf and textPrintf on the stack (port/include/native.h).
 sprintf
+textPrintf
 
 # The GD-ROM file system that the game calls, on the disc image's ISO 9660 (port/src/files.cpp).
 gdFsInit2

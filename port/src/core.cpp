@@ -187,6 +187,10 @@ void put_slot(CallArgs& out, int slot, const ArgWord& w) {
         std::memcpy(&out.fr[slot - 4], &w.w, 4);
     else if (slot >= 16 && slot < 32)
         out.stack[slot - 16] = w.w;
+    else if (slot >= 32 && slot < 48) {
+        out.ctx[slot - 32] = w.w;
+        out.nctx = static_cast<uint16_t>(out.nctx | 1u << (slot - 32));
+    }
 }
 }  // namespace
 

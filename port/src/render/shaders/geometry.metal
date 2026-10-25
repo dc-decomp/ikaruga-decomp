@@ -130,27 +130,102 @@ struct Lists {
     uint capacity;  // nodes
 };
 
+// The blends that add a term that does not depend on the pixel, with a destination factor of 1. The
+// layers of such blends between two others give the same pixel in any order: each step adds a term
+// that is not negative, rounds the sum, which holds whole 8-bit steps already, and clamps at 1.
+static bool adds(uint blend) {
+    const uint source = blend & 7;
+    return (blend >> 3) == 1 && (source == 0 || source == 1 || source == 4 || source == 5);
+}
+
+// The term of an adds() layer in 8-bit steps: what its blend step adds, rounded as the step rounds.
+static uint4 term(uint colour, uint blend) {
+    const float4 c = float4(colour & 255, (colour >> 8) & 255, (colour >> 16) & 255, colour >> 24);
+    switch (blend & 7) {
+        case 0: return uint4(0);
+        case 1: return uint4(c);
+        case 4: return uint4(round(c * c.a / 255.0));
+        default: return uint4(round(c * (255.0 - c.a) / 255.0));
+    }
+}
+
+// A fragment joins its pixel's list, unless the band's share of the pool is full. The renderer
+// plans the next render's bands from what each slice of rows needed, this fragment included.
+static void insert(uint colour, float depth, uint key, uint2 position, constant Lists& lists,
+                   device atomic_uint* heads, device Node* nodes, device atomic_uint* used,
+                   device atomic_uint* slices) {
+    const uint node = atomic_fetch_add_explicit(used, 1u, memory_order_relaxed);
+    if (node >= lists.capacity) {
+        atomic_fetch_add_explicit(&slices[position.y / kSliceRows], 1u, memory_order_relaxed);
+        return;
+    }
+    nodes[node].colour = colour;
+    nodes[node].depth = depth;
+    nodes[node].key = key;
+    nodes[node].next = atomic_exchange_explicit(&heads[position.y * lists.width + position.x], node,
+                                                memory_order_relaxed);
+}
+
 // A translucent fragment that passes the depth test against the opaque geometry joins its pixel's
 // list. The pipeline writes no colour; the sort pass blends it.
 [[early_fragment_tests]] fragment void translucent_fragment(
     Varyings in [[stage_in]], constant Draw& draw [[buffer(0)]], constant Fog& fog [[buffer(1)]],
     constant Lists& lists [[buffer(2)]], device atomic_uint* heads [[buffer(3)]], device Node* nodes [[buffer(4)]],
-    device atomic_uint* used [[buffer(5)]], device atomic_uint* slices [[buffer(6)]], texture2d<float> tex [[texture(0)]],
-    sampler smp [[sampler(0)]]) {
-    const float4 colour = shade(in, draw, fog, tex, smp);
-    const uint node = atomic_fetch_add_explicit(used, 1u, memory_order_relaxed);
-    if (node >= lists.capacity) {
-        // The band's share of the pool is full. The renderer plans the next render's bands from what
-        // each slice of rows needed, this fragment included.
-        atomic_fetch_add_explicit(&slices[uint(in.position.y) / kSliceRows], 1u, memory_order_relaxed);
+    device atomic_uint* used [[buffer(5)]], device atomic_uint* slices [[buffer(6)]],
+    device atomic_uint* farthest [[buffer(7)]], device atomic_uint* nearest [[buffer(8)]],
+    texture2d<float> tex [[texture(0)]], sampler smp [[sampler(0)]]) {
+    const uint4 c = uint4(round(shade(in, draw, fog, tex, smp) * 255.0));
+    // A fragment that leaves its pixel as it is takes no node: one whose destination factor is 1 and
+    // whose own term is 0, as the transparent corners of a sprite that blends by its alpha.
+    const uint source = draw.blend & 7, destination = draw.blend >> 3;
+    const bool black = all(c == 0);
+    if ((destination == 1 || (destination == 5 && c.a == 0) || (destination == 3 && black)) &&
+        (source == 0 || black || (source == 4 && c.a == 0)))
         return;
-    }
+    const uint2 position = uint2(in.position.xy);
+    insert(c.r | c.g << 8 | c.b << 16 | c.a << 24, in.position.z, draw.order << 6 | draw.blend, position, lists, heads,
+           nodes, used, slices);
+    // The depths of the pixel's farthest and nearest layer, as bits that order as the depth.
+    const uint pixel = position.y * lists.width + position.x;
+    const uint depth = as_type<uint>(in.position.z > 0.0f ? in.position.z : 0.0f);
+    atomic_fetch_min_explicit(&farthest[pixel], depth, memory_order_relaxed);
+    atomic_fetch_max_explicit(&nearest[pixel], depth, memory_order_relaxed);
+}
+
+// A translucent fragment of an adds() strip, drawn after the band's other strips. Where its pixel
+// has no list, or the fragment lies behind every layer of the list, its term goes to the framebuffer
+// before the sort, through the pipeline's blend of one and one: the terms of such layers sum to the
+// same in any order. A fragment in front of every layer waits for added_on_top(). Only one between
+// the layers, or at the depth of one, joins the list, where the sort places its term.
+[[early_fragment_tests]] fragment float4 added_fragment(
+    Varyings in [[stage_in]], constant Draw& draw [[buffer(0)]], constant Fog& fog [[buffer(1)]],
+    constant Lists& lists [[buffer(2)]], device atomic_uint* heads [[buffer(3)]], device Node* nodes [[buffer(4)]],
+    device atomic_uint* used [[buffer(5)]], device atomic_uint* slices [[buffer(6)]],
+    device const uint* farthest [[buffer(7)]], device const uint* nearest [[buffer(8)]],
+    texture2d<float> tex [[texture(0)]], sampler smp [[sampler(0)]]) {
+    const uint4 c = uint4(round(shade(in, draw, fog, tex, smp) * 255.0));
+    const uint colour = c.r | c.g << 8 | c.b << 16 | c.a << 24;
+    const uint2 position = uint2(in.position.xy);
+    const uint pixel = position.y * lists.width + position.x;
+    const uint depth = as_type<uint>(in.position.z > 0.0f ? in.position.z : 0.0f);
+    if (atomic_load_explicit(&heads[pixel], memory_order_relaxed) == 0xFFFFFFFFu || depth < farthest[pixel])
+        return float4(term(colour, draw.blend)) / 255.0;
+    if (depth <= nearest[pixel])
+        insert(colour, in.position.z, draw.order << 6 | draw.blend, position, lists, heads, nodes, used, slices);
+    return float4(0.0);
+}
+
+// The fragments of adds() strips in front of every layer of their pixel's list, after the sort.
+[[early_fragment_tests]] fragment float4 added_on_top(
+    Varyings in [[stage_in]], constant Draw& draw [[buffer(0)]], constant Fog& fog [[buffer(1)]],
+    constant Lists& lists [[buffer(2)]], device const uint* heads [[buffer(3)]],
+    device const uint* nearest [[buffer(8)]], texture2d<float> tex [[texture(0)]], sampler smp [[sampler(0)]]) {
     const uint pixel = uint(in.position.y) * lists.width + uint(in.position.x);
-    const uint4 c = uint4(round(colour * 255.0));
-    nodes[node].colour = c.r | c.g << 8 | c.b << 16 | c.a << 24;
-    nodes[node].depth = in.position.z;
-    nodes[node].key = draw.order << 6 | draw.blend;
-    nodes[node].next = atomic_exchange_explicit(&heads[pixel], node, memory_order_relaxed);
+    const uint depth = as_type<uint>(in.position.z > 0.0f ? in.position.z : 0.0f);
+    if (heads[pixel] == 0xFFFFFFFFu || depth <= nearest[pixel])
+        return float4(0.0);
+    const uint4 c = uint4(round(shade(in, draw, fog, tex, smp) * 255.0));
+    return float4(term(c.r | c.g << 8 | c.b << 16 | c.a << 24, draw.blend)) / 255.0;
 }
 
 struct FullScreen {
@@ -182,38 +257,57 @@ static float4 factor(uint instruction, float4 src, float4 dst, bool source) {
 
 constant uint kMaxLayers = 64;
 
+// A pixel plus terms, clamped as each step clamps.
+static float4 add_terms(float4 colour, uint4 terms) {
+    return float4(min(uint4(round(colour * 255.0)) + terms, uint4(255))) / 255.0;
+}
+
 // Each pixel's translucent fragments, from the farthest (the smallest 1/w) to the nearest, the
 // earlier strip first on a tie, each blended over what is there with its own factors. The
-// framebuffer holds 8 bits a channel after each blend. A pixel with more fragments than fit keeps
-// the nearest ones.
+// framebuffer holds 8 bits a channel after each blend. Only the layers whose blend depends on the
+// pixel are sorted: the adds() layers between two of them are summed, so an explosion of added
+// sprites needs no sort. A pixel with more sorted layers than fit keeps the nearest ones.
 fragment float4 sort_fragment(FullScreen in [[stage_in]], float4 dst [[color(0)]], constant Lists& lists [[buffer(2)]],
                               device const uint* heads [[buffer(3)]], device const Node* nodes [[buffer(4)]],
                               device atomic_uint* slices [[buffer(5)]]) {
     const uint pixel = uint(in.position.y) * lists.width + uint(in.position.x);
-    uint index[kMaxLayers];
+    // Each fragment is read once. Its order is one word, 1/w above the key, so that one compare sorts
+    // by depth and then by the strip's place. A float that is not negative orders as its bits.
+    ulong order[kMaxLayers];
+    uint colours[kMaxLayers];
     uint count = 0, length = 0;
-    for (uint n = heads[pixel]; n != 0xFFFFFFFFu && n < lists.capacity; n = nodes[n].next) {
+    uint4 sum = uint4(0);
+    bool added = false;
+    for (uint n = heads[pixel]; n != 0xFFFFFFFFu && n < lists.capacity;) {
         ++length;
-        // Insertion by (depth, key): the farthest first.
-        const float d = nodes[n].depth;
-        const uint k = nodes[n].key;
-        uint i = count < kMaxLayers ? count++ : kMaxLayers;
-        if (i == kMaxLayers) {
+        const Node node = nodes[n];
+        n = node.next;
+        const uint blend = node.key & 63;
+        if (adds(blend)) {
+            sum += term(node.colour, blend);
+            added = true;
+            continue;
+        }
+        const ulong o = ulong(as_type<uint>(node.depth > 0.0f ? node.depth : 0.0f)) << 32 | node.key;
+        uint i = count;
+        if (count == kMaxLayers) {
             // Full: drop the farthest unless this one is farther still.
-            const Node first = nodes[index[0]];
-            if (d < first.depth || (d == first.depth && k < first.key))
+            if (o < order[0])
                 continue;
-            for (uint j = 1; j < kMaxLayers; ++j) index[j - 1] = index[j];
+            for (uint j = 1; j < kMaxLayers; ++j) {
+                order[j - 1] = order[j];
+                colours[j - 1] = colours[j];
+            }
             i = kMaxLayers - 1;
         }
-        while (i > 0) {
-            const Node prev = nodes[index[i - 1]];
-            if (prev.depth < d || (prev.depth == d && prev.key < k))
-                break;
-            index[i] = index[i - 1];
-            --i;
+        else
+            ++count;
+        for (; i > 0 && order[i - 1] >= o; --i) {
+            order[i] = order[i - 1];
+            colours[i] = colours[i - 1];
         }
-        index[i] = n;
+        order[i] = o;
+        colours[i] = node.colour;
     }
     // One atomic for each SIMD group that lies in one slice: thousands of pixels count into each.
     const uint slice = uint(in.position.y) / kSliceRows;
@@ -224,19 +318,38 @@ fragment float4 sort_fragment(FullScreen in [[stage_in]], float4 dst [[color(0)]
     }
     else if (length)
         atomic_fetch_add_explicit(&slices[slice], length, memory_order_relaxed);
-    float4 colour = dst;
+    if (count == 0)
+        return added ? add_terms(dst, sum) : dst;
+    // Sorted layers and added ones: each added layer's term goes between the sorted layers that it
+    // lies between, in a second walk of the list.
+    uint4 gaps[kMaxLayers + 1];
+    for (uint i = 0; i <= count; ++i) gaps[i] = uint4(0);
+    if (added)
+        for (uint n = heads[pixel]; n != 0xFFFFFFFFu && n < lists.capacity;) {
+            const Node node = nodes[n];
+            n = node.next;
+            const uint blend = node.key & 63;
+            if (!adds(blend))
+                continue;
+            const ulong o = ulong(as_type<uint>(node.depth > 0.0f ? node.depth : 0.0f)) << 32 | node.key;
+            uint gap = 0;
+            while (gap < count && order[gap] < o) ++gap;
+            gaps[gap] += term(node.colour, blend);
+        }
+    float4 colour = add_terms(dst, gaps[0]);
     for (uint i = 0; i < count; ++i) {
-        const Node node = nodes[index[i]];
-        const float4 src = float4(node.colour & 255, (node.colour >> 8) & 255, (node.colour >> 16) & 255,
-                                  node.colour >> 24) / 255.0;
-        const uint blend = node.key & 63;
+        const uint c = colours[i];
+        const float4 src = float4(c & 255, (c >> 8) & 255, (c >> 16) & 255, c >> 24) / 255.0;
+        const uint blend = uint(order[i]) & 63;
         colour = clamp(src * factor(blend, src, colour, true) + colour * factor(blend >> 3, src, colour, false), 0.0, 1.0);
         colour = round(colour * 255.0) / 255.0;
+        colour = add_terms(colour, gaps[i + 1]);
     }
     return colour;
 }
 
-// The window: a framebuffer, scaled into the drawable's 4:3 area.
+// The window: a framebuffer, scaled into the drawable's 4:3 area. The same full-screen triangle
+// draws the passes of the bloom.
 struct Present {
     float4 position [[position]];
     float2 uv;
@@ -250,7 +363,50 @@ vertex Present present_vertex(uint id [[vertex_id]]) {
     return out;
 }
 
+// A pass over a picture: taps along each axis, `step` apart in the source's coordinates.
+struct Pass {
+    float2 step;
+    int taps;
+    float strength;  // the bloom's
+};
+
+// The mean of taps x taps bilinear samples around `uv`.
+static float4 mean(texture2d<float> t, sampler smp, float2 uv, constant Pass& p) {
+    const float2 first = uv - p.step * (float(p.taps - 1) * 0.5);
+    float4 sum = float4(0.0);
+    for (int y = 0; y < p.taps; ++y)
+        for (int x = 0; x < p.taps; ++x) sum += t.sample(smp, first + p.step * float2(x, y));
+    return sum / float(p.taps * p.taps);
+}
+
 fragment float4 present_fragment(Present in [[stage_in]], texture2d<float> frame [[texture(0)]],
-                                 sampler smp [[sampler(0)]]) {
-    return frame.sample(smp, in.uv);
+                                 sampler smp [[sampler(0)]], constant Pass& p [[buffer(0)]]) {
+    return mean(frame, smp, in.uv, p);
+}
+
+// The bloom's first pass: the frame averaged down to the glow's size, and of that only what is
+// bright, fading in from a luminance of 0.85 to full at 1.
+fragment float4 bloom_extract(Present in [[stage_in]], texture2d<float> frame [[texture(0)]],
+                              sampler smp [[sampler(0)]], constant Pass& p [[buffer(0)]]) {
+    const float3 c = mean(frame, smp, in.uv, p).rgb;
+    const float luminance = dot(c, float3(0.2126, 0.7152, 0.0722));
+    return float4(c * smoothstep(0.85, 1.0, luminance), 1.0);
+}
+
+// A Gaussian blur of 9 texels along `step`, in 5 bilinear samples.
+fragment float4 bloom_blur(Present in [[stage_in]], texture2d<float> t [[texture(0)]], sampler smp [[sampler(0)]],
+                           constant Pass& p [[buffer(0)]]) {
+    float4 c = t.sample(smp, in.uv) * 0.2270270270;
+    c += (t.sample(smp, in.uv + p.step * 1.3846153846) + t.sample(smp, in.uv - p.step * 1.3846153846)) * 0.3162162162;
+    c += (t.sample(smp, in.uv + p.step * 3.2307692308) + t.sample(smp, in.uv - p.step * 3.2307692308)) * 0.0702702703;
+    return c;
+}
+
+// The frame with both sizes of the blurred glow added.
+fragment float4 bloom_composite(Present in [[stage_in]], texture2d<float> frame [[texture(0)]],
+                                texture2d<float> near [[texture(1)]], texture2d<float> far [[texture(2)]],
+                                sampler smp [[sampler(0)]], constant Pass& p [[buffer(0)]]) {
+    const float3 c = frame.read(uint2(in.position.xy)).rgb;
+    const float3 glow = near.sample(smp, in.uv).rgb + far.sample(smp, in.uv).rgb;
+    return float4(min(c + glow * p.strength, 1.0), 1.0);
 }

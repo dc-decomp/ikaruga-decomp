@@ -84,7 +84,10 @@ bool open_disc(const std::string& path, std::string& error);
 // The console's devices, for the window, the sound and the controller (port/src/main.cpp).
 dream::System& system();
 dream::aica::Aica& aica();
-dream::maple::ControllerState& pad();
+// The controllers in ports A and B. Port B has one only when second_pad() is set, which a window
+// run that a person plays does, so that a scripted run sees the console as before.
+dream::maple::ControllerState& pad(unsigned port = 0);
+bool& second_pad();
 // Called at each vertical blank, before the peripheral server reads the controller.
 void on_vblank(std::function<void()> hook);
 // Called with the display list of each render.

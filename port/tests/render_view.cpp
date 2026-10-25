@@ -1,7 +1,9 @@
 // Draws a display list dump from IKARUGA_DUMP_TA with the port's renderer, without a window, and
 // writes the picture as a PNG.
-//   render-view DUMP OUT.png [--scale N] [--list]
-// --list prints each strip that draws, with its list, words and vertex count.
+//   render-view DUMP OUT.png [--scale N] [--rescale N] [--bloom N] [--anisotropy N] [--list]
+// --list prints each strip that draws, with its list, words and vertex count. --bloom 1 or 2 adds
+// the bloom, as the window shows it. --anisotropy N filters with N samples. --rescale N changes the scale after the first render, as the
+// GRAPHICS page does, writes the scaled framebuffer to OUT.scaled.png, and draws OUT at N.
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -74,10 +76,10 @@ bool write_png(const std::string& path, const std::vector<uint32_t>& rgba, uint3
 }  // namespace
 
 int main(int argc, char** argv) {
-    // --menu OUT.png: the controller screen with the default bindings, over black, at 1280x960.
+    // --menu OUT.png: the menu's main page, over black, at 1280x960.
     if (argc == 3 && !std::strcmp(argv[1], "--menu")) {
         render::Menu menu;
-        menu.open(render::Bindings::defaults());
+        menu.open(render::Bindings::defaults(), render::Graphics{}, render::Tweaks{});
         render::Overlay overlay;
         overlay.begin(1280, 960);
         menu.draw(overlay, 1280, 960);
@@ -90,11 +92,17 @@ int main(int argc, char** argv) {
         return 2;
     }
     const std::string dump = argv[1], out = argv[2];
-    unsigned scale = 1;
+    unsigned scale = 1, rescale = 0, bloom = 0, anisotropy = 1;
     bool list = false;
     for (int i = 3; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--scale") && i + 1 < argc)
             scale = static_cast<unsigned>(std::atoi(argv[++i]));
+        else if (!std::strcmp(argv[i], "--rescale") && i + 1 < argc)
+            rescale = static_cast<unsigned>(std::atoi(argv[++i]));
+        else if (!std::strcmp(argv[i], "--bloom") && i + 1 < argc)
+            bloom = static_cast<unsigned>(std::atoi(argv[++i]));
+        else if (!std::strcmp(argv[i], "--anisotropy") && i + 1 < argc)
+            anisotropy = static_cast<unsigned>(std::atoi(argv[++i]));
         else if (!std::strcmp(argv[i], "--list"))
             list = true;
     }
@@ -154,17 +162,27 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "render: %s\n", error.c_str());
         return 1;
     }
+    gpu.set_anisotropy(anisotropy);
     const render::Hardware hw{registers.data(), vram.data(), vram.size()};
+    const uint32_t target = registers[0x060 / 4] & 0xFFFFFF;
+    std::vector<uint32_t> pixels;
+    uint32_t w = 0, h = 0;
     gpu.render(dl, hw);
+    if (rescale) {
+        gpu.set_scale(rescale);
+        if (!gpu.read_target(target, pixels, w, h) || !write_png(out + ".scaled.png", pixels, w, h)) {
+            std::fprintf(stderr, "render: no scaled picture\n");
+            return 1;
+        }
+    }
     // Again, with the textures decoded, for the GPU time of a render alone.
     gpu.render(dl, hw);
     double gpu_ms = 0;
     uint32_t fragments = 0;
     gpu.last_render(gpu_ms, fragments);
     std::printf("render: %.2f ms on the GPU, %u translucent fragments\n", gpu_ms, fragments);
-    std::vector<uint32_t> pixels;
-    uint32_t w = 0, h = 0;
-    if (!gpu.read_target(registers[0x060 / 4] & 0xFFFFFF, pixels, w, h) || !write_png(out, pixels, w, h)) {
+    gpu.set_bloom(bloom);
+    if (!gpu.read_target(target, pixels, w, h, true) || !write_png(out, pixels, w, h)) {
         std::fprintf(stderr, "render: no picture\n");
         return 1;
     }

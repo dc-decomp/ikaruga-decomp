@@ -6,11 +6,14 @@
 #include <SDL3/SDL_metal.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -44,13 +47,27 @@ struct FogUniforms {
 struct Lists {
     uint32_t width, capacity;
 };
+// A pass over a picture: the step between its taps in the source's coordinates, the taps along each
+// axis, and the bloom's strength.
+struct Pass {
+    float step[2];
+    int32_t taps;
+    float strength;
+};
+// The bloom's two sizes of the picture's bright parts, whatever the render's size, so that the glow
+// looks the same at each resolution.
+constexpr uint32_t kGlowWidth = 320, kGlowHeight = 240;
+// The bloom's strength for each level, LOW and HIGH.
+constexpr float kBloomStrength[3] = {0.0f, 0.3f, 0.6f};
 constexpr size_t kNodeBytes = 16;
 // The screen is drawn in bands of rows, one after another, which all use the one pool of
 // translucent fragments. A band's fragments are sorted and blended before the next band's fill the
 // pool, as the PowerVR finishes a tile before the next. Bands are whole slices of kSliceRows rows,
-// whose fragments the shaders count.
-constexpr size_t kMaxBands = 128;
+// whose fragments the shaders count. The pool starts at 4 fragments a pixel, at most those of 4X,
+// 315 MB: a larger render takes more bands instead.
+constexpr size_t kMaxBands = 256;
 constexpr uint32_t kSliceRows = 16;
+constexpr uint32_t kMaxPoolNodes = 2560 * 1920 * 4;
 struct Band {
     uint32_t y0, y1;    // its rows, the last excluded
     uint64_t estimate;  // the translucent fragments the last render had in these rows
@@ -130,6 +147,7 @@ void colour_of(uint32_t reg, float (&out)[4]) {
 struct Batch {
     uint32_t first, count;
     bool translucent;
+    bool adds;          // translucent, with a term that does not depend on the pixel (added_fragment)
     uint32_t pipeline;  // an opaque or punch-through strip's blend factors
     uint32_t depth;     // the depth compare in bits 0-2, depth writes in bit 3
     id<MTLTexture> texture;
@@ -149,14 +167,78 @@ struct Gpu::Impl {
     CAMetalLayer* layer = nil;
     MTLVertexDescriptor* vertex_layout = nil;
     std::map<uint32_t, id<MTLRenderPipelineState>> pipelines;
-    id<MTLRenderPipelineState> translucent = nil, sort = nil, present = nil, overlay = nil;
+    id<MTLRenderPipelineState> translucent = nil, added = nil, added_top = nil, sort = nil, present = nil,
+                               overlay = nil;
+    // `resample` scales a framebuffer, `bloom_half` the glow, and the bloom's passes make `shown`.
+    id<MTLRenderPipelineState> resample = nil, bloom_extract = nil, bloom_half = nil, bloom_blur = nil,
+                               bloom_composite = nil;
+    id<MTLTexture> glow[4] = {nil, nil, nil, nil};  // two at the glow's size, two at half of it
+    id<MTLTexture> shown = nil, shown_from = nil;    // the displayed framebuffer with the bloom, and which
+    uint64_t shown_at = 0;                          // `encodes` when `shown` was made
+    uint64_t encodes = 0;                           // the renders encoded, drawn again ones included
+    id<MTLCommandBuffer> bloom_passes = nil;        // the last that made `shown`
+    unsigned bloom = 0, anisotropy = 1;
+    bool hud = true;  // MTL_HUD_ENABLED shows the HUD until set_hud() says otherwise
+    // What Core Animation's presented handlers report: the last refresh that showed a picture, the
+    // pictures that came after the refresh they asked for, and with IKARUGA_PACING when each picture
+    // came on the screen, 0 for one that never did. Each handler holds it, as a handler can come
+    // after the renderer is gone.
+    struct Presented {
+        std::atomic<double> last{0};
+        std::atomic<uint64_t> late{0};
+        bool pacing = false;
+        std::mutex lock;
+        std::vector<double> times;
+        std::vector<std::pair<double, double>> marks;  // a present's mark, and its picture's refresh
+    };
+    std::shared_ptr<Presented> presented = std::make_shared<Presented>();
+    bool display_sync = false;
+
+    // How many refreshes of the display each picture stayed on the screen.
+    void report_pacing() {
+        std::vector<double> times;
+        size_t dropped = 0;
+        {
+            std::lock_guard<std::mutex> lock(presented->lock);
+            for (double t : presented->times) t > 0 ? times.push_back(t) : static_cast<void>(++dropped);
+        }
+        std::sort(times.begin(), times.end());
+        float hz = 60;
+        if (const SDL_DisplayMode* mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window)))
+            hz = mode->refresh_rate > 0 ? mode->refresh_rate : hz;
+        std::map<long, size_t> refreshes;
+        for (size_t i = 1; i < times.size(); ++i) ++refreshes[std::lround((times[i] - times[i - 1]) * hz)];
+        std::fprintf(stderr, "pacing: %zu pictures shown and %zu never on a display at %.2f Hz; refreshes on screen:",
+                     times.size(), dropped, hz);
+        for (const auto& [n, count] : refreshes) std::fprintf(stderr, " %ld x%zu", n, count);
+        std::fprintf(stderr, "; %llu later than asked\n", static_cast<unsigned long long>(presented->late.load()));
+    }
+
+    // From each key's event to the refresh that showed the first white picture, in ms.
+    void report_latency() {
+        std::vector<double> ms;
+        {
+            std::lock_guard<std::mutex> lock(presented->lock);
+            for (const auto& [mark, shown] : presented->marks)
+                if (shown > 0)
+                    ms.push_back((shown - mark) * 1000);
+        }
+        if (ms.empty())
+            return;
+        std::fprintf(stderr, "latency: %zu presses, from the key's event to the refresh that showed the picture:", ms.size());
+        for (double v : ms) std::fprintf(stderr, " %.1f", v);
+        std::sort(ms.begin(), ms.end());
+        std::fprintf(stderr, " ms; median %.1f, least %.1f, most %.1f\n", ms[ms.size() / 2], ms.front(), ms.back());
+    }
     id<MTLTexture> overlays[2] = {nil, nil};  // written in turn, so the CPU never writes one in use
     int overlay_next = 0;
     id<MTLTexture> overlay_shown = nil;
     std::map<uint32_t, id<MTLDepthStencilState>> depth_states;
     std::map<uint32_t, id<MTLSamplerState>> samplers;
-    id<MTLSamplerState> present_sampler = nil;
+    id<MTLSamplerState> present_sampler = nil;  // bilinear, clamped to the edge
     std::map<uint32_t, id<MTLTexture>> targets;  // by framebuffer address
+    uint32_t newest = 0;                          // the last render's target, which present() shows
+    bool newest_valid = false;
     id<MTLTexture> depth = nil, white = nil;
     struct Texture {
         id<MTLTexture> texture = nil;
@@ -166,8 +248,9 @@ struct Gpu::Impl {
     std::unordered_map<uint64_t, Texture> textures;
     id<MTLBuffer> vertices = nil;
     // The pool's nodes are counted out to each band in turn; slices: the fragments each slice of
-    // rows needed in the last render.
-    id<MTLBuffer> heads = nil, nodes = nil, counters = nil, slices = nil;
+    // rows needed in the last render; farthest and nearest: the depth bits of each pixel's farthest
+    // and nearest layer in its list.
+    id<MTLBuffer> heads = nil, nodes = nil, counters = nil, slices = nil, farthest = nil, nearest = nil;
     uint32_t node_capacity = 0;
     std::vector<Band> bands;  // the last render's
     id<MTLCommandBuffer> last = nil;  // the last render's
@@ -180,7 +263,9 @@ struct Gpu::Impl {
         MTLClearColor background{};
         float background_depth = 0, z_scale = 1;
         FogUniforms fog{};
+        double started = 0;  // the frame's start (start_frame()), 0 for none
     } pending;
+    double frame_start = 0, work = 0;
     unsigned scale = 1;
     uint32_t width = 640, height = 480;
     std::vector<Vertex> triangles;
@@ -196,6 +281,7 @@ struct Gpu::Impl {
     // first frame can need 40 times the fragments of the render before. The render is then drawn again
     // with its bands planned from what each slice needed, up to three times.
     void finish() {
+        const bool open = pending.open;
         wait();
         while (pending.open) {
             bool overflowed = false;
@@ -218,6 +304,9 @@ struct Gpu::Impl {
             encode();
             wait();
         }
+        if (open && pending.started > 0 && last)
+            work = last.GPUEndTime - pending.started;
+        pending.started = 0;
     }
 
     // The pending render's draws, into a command buffer that the GPU runs while the CPU goes on.
@@ -283,6 +372,7 @@ struct Gpu::Impl {
         d.minFilter = d.magFilter = bilinear ? MTLSamplerMinMagFilterLinear : MTLSamplerMinMagFilterNearest;
         d.mipFilter = !mipmapped ? MTLSamplerMipFilterNotMipmapped
                                  : trilinear ? MTLSamplerMipFilterLinear : MTLSamplerMipFilterNearest;
+        d.maxAnisotropy = bilinear ? anisotropy : 1;
         d.sAddressMode = address(key & 8, key & 32);
         d.tAddressMode = address(key & 16, key & 64);
         id<MTLSamplerState> s = [device newSamplerStateWithDescriptor:d];
@@ -290,18 +380,91 @@ struct Gpu::Impl {
         return s;
     }
 
+    id<MTLTexture> picture(uint32_t w, uint32_t h, MTLPixelFormat format = MTLPixelFormatRGBA8Unorm) {
+        MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
+                                                                                     width:w
+                                                                                    height:h
+                                                                                 mipmapped:NO];
+        d.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+        d.storageMode = format == MTLPixelFormatRGBA8Unorm ? MTLStorageModeShared : MTLStorageModePrivate;
+        return [device newTextureWithDescriptor:d];
+    }
+
     id<MTLTexture> target(uint32_t address) {
         if (auto it = targets.find(address); it != targets.end())
             return it->second;
-        MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+        id<MTLTexture> t = picture(width, height);
+        targets[address] = t;
+        return t;
+    }
+
+    // A full-screen pass of `pipeline` into `out`, which reads `in` with the bilinear sampler.
+    void pass(id<MTLCommandBuffer> cmd, id<MTLRenderPipelineState> pipeline, id<MTLTexture> out, const Pass& p,
+              id<MTLTexture> in0, id<MTLTexture> in1 = nil, id<MTLTexture> in2 = nil) {
+        MTLRenderPassDescriptor* d = [MTLRenderPassDescriptor renderPassDescriptor];
+        d.colorAttachments[0].texture = out;
+        d.colorAttachments[0].loadAction = MTLLoadActionDontCare;
+        d.colorAttachments[0].storeAction = MTLStoreActionStore;
+        id<MTLRenderCommandEncoder> enc = [cmd renderCommandEncoderWithDescriptor:d];
+        [enc setRenderPipelineState:pipeline];
+        [enc setFragmentTexture:in0 atIndex:0];
+        [enc setFragmentTexture:in1 atIndex:1];
+        [enc setFragmentTexture:in2 atIndex:2];
+        [enc setFragmentSamplerState:present_sampler atIndex:0];
+        [enc setFragmentBytes:&p length:sizeof p atIndex:0];
+        [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        [enc endEncoding];
+    }
+
+    // The buffers whose size follows the render's: the depth, the pixels' lists and the slices' counts.
+    void size_buffers() {
+        MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
                                                                                      width:width
                                                                                     height:height
                                                                                  mipmapped:NO];
-        d.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
-        d.storageMode = MTLStorageModeShared;
-        id<MTLTexture> t = [device newTextureWithDescriptor:d];
-        targets[address] = t;
-        return t;
+        d.usage = MTLTextureUsageRenderTarget;
+        d.storageMode = MTLStorageModePrivate;
+        depth = [device newTextureWithDescriptor:d];
+        heads = [device newBufferWithLength:static_cast<NSUInteger>(width) * height * 4
+                                    options:MTLResourceStorageModePrivate];
+        farthest = [device newBufferWithLength:static_cast<NSUInteger>(width) * height * 4
+                                       options:MTLResourceStorageModePrivate];
+        nearest = [device newBufferWithLength:static_cast<NSUInteger>(width) * height * 4
+                                      options:MTLResourceStorageModePrivate];
+        slices = [device newBufferWithLength:(height / kSliceRows) * 4 options:MTLResourceStorageModeShared];
+        std::memset(slices.contents, 0, slices.length);
+        lists(std::min(width * height * 4, kMaxPoolNodes));
+        bands = {{0, height, 0}};
+    }
+
+    // The displayed framebuffer `frame` with the bloom: its bright parts, averaged down to the glow's
+    // size, blurred there and at half of it, and added to it.
+    id<MTLTexture> bloomed(id<MTLTexture> frame) {
+        if (shown && shown_from == frame && shown_at == encodes)
+            return shown;
+        if (!shown || shown.width != frame.width || shown.height != frame.height)
+            shown = picture(static_cast<uint32_t>(frame.width), static_cast<uint32_t>(frame.height));
+        if (!glow[0]) {
+            for (int i = 0; i < 4; ++i)
+                glow[i] = picture(kGlowWidth >> (i / 2), kGlowHeight >> (i / 2), MTLPixelFormatRGBA16Float);
+        }
+        id<MTLCommandBuffer> cmd = [queue commandBuffer];
+        // Taps 2 texels apart, each the bilinear mean of 2 by 2, cover the frame's texels in each glow
+        // texel.
+        const auto taps = static_cast<int32_t>(std::max<NSUInteger>(1, frame.width / (2 * kGlowWidth)));
+        pass(cmd, bloom_extract, glow[0], {{2.0f / frame.width, 2.0f / frame.height}, taps, 0}, frame);
+        pass(cmd, bloom_half, glow[2], {{0, 0}, 1, 0}, glow[0]);
+        for (int level = 0; level < 2; ++level) {
+            const float w = static_cast<float>(kGlowWidth >> level), h = static_cast<float>(kGlowHeight >> level);
+            pass(cmd, bloom_blur, glow[2 * level + 1], {{1.0f / w, 0}, 1, 0}, glow[2 * level]);
+            pass(cmd, bloom_blur, glow[2 * level], {{0, 1.0f / h}, 1, 0}, glow[2 * level + 1]);
+        }
+        pass(cmd, bloom_composite, shown, {{0, 0}, 1, kBloomStrength[bloom]}, frame, glow[0], glow[2]);
+        [cmd commit];
+        bloom_passes = cmd;
+        shown_from = frame;
+        shown_at = encodes;
+        return shown;
     }
 
     // Room for `capacity` translucent fragments.
@@ -381,20 +544,26 @@ void Gpu::Impl::encode() {
     const Pending& pending = m.pending;
     const auto* slices = static_cast<const uint32_t*>(m.slices.contents);
     const uint32_t slice_count = m.height / kSliceRows;
-    // Half the pool for each band, so that a band holds twice what the last render had there.
+    // Half the pool for each band, so that a band holds twice what the last render had there. A render
+    // that needs more than four bands, as the explosions of the last bosses do, doubles the pool once:
+    // each band loads and stores the whole framebuffer in each of its passes.
     std::vector<Band> bands = plan_bands(slices, slice_count, m.node_capacity / 2);
-    while (bands.size() > kMaxBands) {
+    const uint32_t most = 2 * std::min(m.width * m.height * 4, kMaxPoolNodes);
+    while (bands.size() > kMaxBands || (bands.size() > 4 && m.node_capacity < most)) {
         m.lists(m.node_capacity * 2);
         bands = plan_bands(slices, slice_count, m.node_capacity / 2);
     }
     if (bands.size() != m.bands.size() && std::getenv("IKARUGA_RENDER_DEBUG"))
         std::fprintf(stderr, "render: %zu bands\n", bands.size());
     m.bands = bands;
+    ++m.encodes;
 
     id<MTLCommandBuffer> cmd = [m.queue commandBuffer];
     // Every pixel's list starts empty, and so does each band's count.
     id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
     [blit fillBuffer:m.heads range:NSMakeRange(0, m.heads.length) value:0xFF];
+    [blit fillBuffer:m.farthest range:NSMakeRange(0, m.farthest.length) value:0xFF];
+    [blit fillBuffer:m.nearest range:NSMakeRange(0, m.nearest.length) value:0];
     [blit fillBuffer:m.counters range:NSMakeRange(0, m.counters.length) value:0];
     [blit fillBuffer:m.slices range:NSMakeRange(0, m.slices.length) value:0];
     [blit endEncoding];
@@ -402,21 +571,12 @@ void Gpu::Impl::encode() {
     id<MTLTexture> colour_target = m.target(pending.target);
     const Screen screen{{2.0f / 640.0f, 2.0f / 480.0f, 1.0f / pending.z_scale, 0.0f}};
     const Lists lists{m.width, m.node_capacity};
+    const bool adding = std::any_of(m.draws.begin(), m.draws.end(), [](const Batch& d) { return d.adds; });
     for (size_t b = 0; b < m.bands.size(); ++b) {
         const Band& band = m.bands[b];
-        // The band's geometry: each translucent fragment joins its pixel's list. Depth starts again in
-        // each band, which reads only its own rows.
-        MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
-        pass.colorAttachments[0].texture = colour_target;
-        pass.colorAttachments[0].loadAction = b == 0 ? MTLLoadActionClear : MTLLoadActionLoad;
-        pass.colorAttachments[0].clearColor = pending.background;
-        pass.colorAttachments[0].storeAction = MTLStoreActionStore;
-        pass.depthAttachment.texture = m.depth;
-        pass.depthAttachment.loadAction = MTLLoadActionClear;
-        pass.depthAttachment.clearDepth = std::min(pending.background_depth / pending.z_scale, 1.0f);
-        pass.depthAttachment.storeAction = MTLStoreActionDontCare;
-        id<MTLRenderCommandEncoder> enc = [cmd renderCommandEncoderWithDescriptor:pass];
-        if (!m.draws.empty()) {
+        // The band's strips: the others, or with `adds` its pipeline for the adding ones, which come
+        // after them. Depth starts again in each band, which reads only its own rows.
+        auto strips = [&](id<MTLRenderCommandEncoder> enc, id<MTLRenderPipelineState> adds) {
             [enc setVertexBuffer:m.vertices offset:0 atIndex:0];
             [enc setVertexBytes:&screen length:sizeof screen atIndex:1];
             [enc setFragmentBytes:&pending.fog length:sizeof pending.fog atIndex:1];
@@ -425,28 +585,56 @@ void Gpu::Impl::encode() {
             [enc setFragmentBuffer:m.nodes offset:0 atIndex:4];
             [enc setFragmentBuffer:m.counters offset:b * 4 atIndex:5];
             [enc setFragmentBuffer:m.slices offset:0 atIndex:6];
-        }
-        id<MTLRenderPipelineState> bound = nil;
-        for (const Batch& d : m.draws) {
-            const NSUInteger y0 = std::max<NSUInteger>(d.scissor.y, band.y0);
-            const NSUInteger y1 = std::min<NSUInteger>(d.scissor.y + d.scissor.height, band.y1);
-            if (y1 <= y0)
-                continue;
-            id<MTLRenderPipelineState> p = d.translucent ? m.translucent : m.pipeline(d.pipeline);
-            if (!p)
-                continue;
-            if (p != bound) {
-                [enc setRenderPipelineState:p];
-                bound = p;
+            [enc setFragmentBuffer:m.farthest offset:0 atIndex:7];
+            [enc setFragmentBuffer:m.nearest offset:0 atIndex:8];
+            id<MTLRenderPipelineState> bound = nil;
+            for (const Batch& d : m.draws) {
+                if (d.adds != (adds != nil))
+                    continue;
+                const NSUInteger y0 = std::max<NSUInteger>(d.scissor.y, band.y0);
+                const NSUInteger y1 = std::min<NSUInteger>(d.scissor.y + d.scissor.height, band.y1);
+                if (y1 <= y0)
+                    continue;
+                id<MTLRenderPipelineState> p = d.adds ? adds : d.translucent ? m.translucent : m.pipeline(d.pipeline);
+                if (!p)
+                    continue;
+                if (p != bound) {
+                    [enc setRenderPipelineState:p];
+                    bound = p;
+                }
+                [enc setDepthStencilState:m.depth_state(d.depth)];
+                [enc setFragmentTexture:d.texture atIndex:0];
+                [enc setFragmentSamplerState:m.sampler(d.sampler) atIndex:0];
+                [enc setFragmentBytes:&d.uniforms length:sizeof d.uniforms atIndex:0];
+                [enc setScissorRect:{d.scissor.x, y0, d.scissor.width, y1 - y0}];
+                [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:d.first vertexCount:d.count];
             }
-            [enc setDepthStencilState:m.depth_state(d.depth)];
-            [enc setFragmentTexture:d.texture atIndex:0];
-            [enc setFragmentSamplerState:m.sampler(d.sampler) atIndex:0];
-            [enc setFragmentBytes:&d.uniforms length:sizeof d.uniforms atIndex:0];
-            [enc setScissorRect:{d.scissor.x, y0, d.scissor.width, y1 - y0}];
-            [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:d.first vertexCount:d.count];
-        }
+        };
+        MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
+        pass.colorAttachments[0].texture = colour_target;
+        pass.colorAttachments[0].loadAction = b == 0 ? MTLLoadActionClear : MTLLoadActionLoad;
+        pass.colorAttachments[0].clearColor = pending.background;
+        pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+        pass.depthAttachment.texture = m.depth;
+        pass.depthAttachment.loadAction = MTLLoadActionClear;
+        pass.depthAttachment.clearDepth = std::min(pending.background_depth / pending.z_scale, 1.0f);
+        pass.depthAttachment.storeAction = adding ? MTLStoreActionStore : MTLStoreActionDontCare;
+        id<MTLRenderCommandEncoder> enc = [cmd renderCommandEncoderWithDescriptor:pass];
+        strips(enc, nil);
         [enc endEncoding];
+        // The adding strips see the lists that the others made, so they come in a pass of their own.
+        if (adding) {
+            MTLRenderPassDescriptor* added = [MTLRenderPassDescriptor renderPassDescriptor];
+            added.colorAttachments[0].texture = colour_target;
+            added.colorAttachments[0].loadAction = MTLLoadActionLoad;
+            added.colorAttachments[0].storeAction = MTLStoreActionStore;
+            added.depthAttachment.texture = m.depth;
+            added.depthAttachment.loadAction = MTLLoadActionLoad;
+            added.depthAttachment.storeAction = MTLStoreActionStore;
+            enc = [cmd renderCommandEncoderWithDescriptor:added];
+            strips(enc, m.added);
+            [enc endEncoding];
+        }
 
         // The band's translucent fragments, sorted and blended over its opaque picture.
         MTLRenderPassDescriptor* sort = [MTLRenderPassDescriptor renderPassDescriptor];
@@ -462,6 +650,19 @@ void Gpu::Impl::encode() {
         [enc setScissorRect:{0, band.y0, m.width, band.y1 - band.y0}];
         [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
         [enc endEncoding];
+        // The adding fragments in front of every layer of their pixel's list, over the sorted picture.
+        if (adding) {
+            MTLRenderPassDescriptor* top = [MTLRenderPassDescriptor renderPassDescriptor];
+            top.colorAttachments[0].texture = colour_target;
+            top.colorAttachments[0].loadAction = MTLLoadActionLoad;
+            top.colorAttachments[0].storeAction = MTLStoreActionStore;
+            top.depthAttachment.texture = m.depth;
+            top.depthAttachment.loadAction = MTLLoadActionLoad;
+            top.depthAttachment.storeAction = MTLStoreActionDontCare;
+            enc = [cmd renderCommandEncoderWithDescriptor:top];
+            strips(enc, m.added_top);
+            [enc endEncoding];
+        }
     }
     [cmd commit];
     m.last = cmd;
@@ -473,6 +674,9 @@ Gpu::~Gpu() {
     if (!impl_)
         return;
     impl_->wait();
+    if (impl_->presented->pacing)
+        impl_->report_pacing();
+    impl_->report_latency();
     if (impl_->view)
         SDL_Metal_DestroyView(impl_->view);
 }
@@ -512,18 +716,27 @@ bool Gpu::create(SDL_Window* window, unsigned scale, std::string& error) {
     m.vertex_layout.layouts[0].stride = sizeof(Vertex);
     m.translucent = m.make(@"geometry_vertex", @"translucent_fragment", MTLPixelFormatRGBA8Unorm, true,
                            ^(MTLRenderPipelineColorAttachmentDescriptor* c) { c.writeMask = MTLColorWriteMaskNone; });
+    auto sum = ^(MTLRenderPipelineColorAttachmentDescriptor* c) {
+        c.blendingEnabled = YES;
+        c.sourceRGBBlendFactor = c.sourceAlphaBlendFactor = MTLBlendFactorOne;
+        c.destinationRGBBlendFactor = c.destinationAlphaBlendFactor = MTLBlendFactorOne;
+    };
+    m.added = m.make(@"geometry_vertex", @"added_fragment", MTLPixelFormatRGBA8Unorm, true, sum);
+    m.added_top = m.make(@"geometry_vertex", @"added_on_top", MTLPixelFormatRGBA8Unorm, true, sum);
     m.sort = m.make(@"full_screen_vertex", @"sort_fragment", MTLPixelFormatRGBA8Unorm, false, nil);
-    if (!m.translucent || !m.sort) {
-        error = "the translucent pipelines do not build";
+    m.resample = m.make(@"present_vertex", @"present_fragment", MTLPixelFormatRGBA8Unorm, false, nil);
+    m.bloom_extract = m.make(@"present_vertex", @"bloom_extract", MTLPixelFormatRGBA16Float, false, nil);
+    m.bloom_half = m.make(@"present_vertex", @"present_fragment", MTLPixelFormatRGBA16Float, false, nil);
+    m.bloom_blur = m.make(@"present_vertex", @"bloom_blur", MTLPixelFormatRGBA16Float, false, nil);
+    m.bloom_composite = m.make(@"present_vertex", @"bloom_composite", MTLPixelFormatRGBA8Unorm, false, nil);
+    if (!m.translucent || !m.added || !m.added_top || !m.sort || !m.resample || !m.bloom_extract || !m.bloom_half ||
+        !m.bloom_blur || !m.bloom_composite) {
+        error = "the pipelines do not build";
         return false;
     }
-    MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
-                                                                                 width:m.width
-                                                                                height:m.height
-                                                                             mipmapped:NO];
-    d.usage = MTLTextureUsageRenderTarget;
-    d.storageMode = MTLStorageModePrivate;
-    m.depth = [m.device newTextureWithDescriptor:d];
+    MTLSamplerDescriptor* s = [MTLSamplerDescriptor new];
+    s.minFilter = s.magFilter = MTLSamplerMinMagFilterLinear;
+    m.present_sampler = [m.device newSamplerStateWithDescriptor:s];
     MTLTextureDescriptor* w = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
                                                                                  width:1
                                                                                 height:1
@@ -531,20 +744,16 @@ bool Gpu::create(SDL_Window* window, unsigned scale, std::string& error) {
     m.white = [m.device newTextureWithDescriptor:w];
     const uint32_t white = 0xFFFFFFFFu;
     [m.white replaceRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0 withBytes:&white bytesPerRow:4];
-    m.heads = [m.device newBufferWithLength:static_cast<NSUInteger>(m.width) * m.height * 4
-                                    options:MTLResourceStorageModePrivate];
     m.counters = [m.device newBufferWithLength:kMaxBands * 4 options:MTLResourceStorageModeShared];
-    m.slices = [m.device newBufferWithLength:(m.height / kSliceRows) * 4 options:MTLResourceStorageModeShared];
-    std::memset(m.slices.contents, 0, m.slices.length);
-    m.lists(m.width * m.height * 4);
-    m.bands = {{0, m.height, 0}};
+    m.size_buffers();
     if (window) {
         m.window = window;
+        m.presented->pacing = std::getenv("IKARUGA_PACING") != nullptr;
         m.view = SDL_Metal_CreateView(window);
         m.layer = (__bridge CAMetalLayer*)SDL_Metal_GetLayer(m.view);
         m.layer.device = m.device;
         m.layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
-        // The run paces itself by the guest's clock, so presenting must not wait for the display.
+        // Presenting waits for the display only in a run that the display paces (set_display_sync).
         m.layer.displaySyncEnabled = NO;
         m.present = m.make(@"present_vertex", @"present_fragment", MTLPixelFormatBGRA8Unorm, false, nil);
         m.overlay = m.make(@"present_vertex", @"present_fragment", MTLPixelFormatBGRA8Unorm, false,
@@ -554,9 +763,6 @@ bool Gpu::create(SDL_Window* window, unsigned scale, std::string& error) {
                                c.destinationRGBBlendFactor = c.destinationAlphaBlendFactor =
                                    MTLBlendFactorOneMinusSourceAlpha;
                            });
-        MTLSamplerDescriptor* s = [MTLSamplerDescriptor new];
-        s.minFilter = s.magFilter = MTLSamplerMinMagFilterLinear;
-        m.present_sampler = [m.device newSamplerStateWithDescriptor:s];
     }
     return true;
 }
@@ -615,6 +821,13 @@ void Gpu::render(const Frame& frame, const Hardware& hw) {
             d.count = static_cast<uint32_t>(m.triangles.size()) - d.first;
             d.translucent = which == List::Translucent;
             d.pipeline = static_cast<uint32_t>(s.source) | static_cast<uint32_t>(s.target) << 3;
+            // A destination factor of 1 with a source factor of 0, 1, source alpha or its inverse: the
+            // strip adds a term that does not depend on the pixel. A term of 0 times the source
+            // leaves the pixel as it is.
+            const uint32_t source = d.pipeline & 7, target = d.pipeline >> 3;
+            d.adds = d.translucent && target == 1 && (source == 0 || source == 1 || source == 4 || source == 5);
+            if (d.adds && source == 0)
+                continue;
             // A translucent polygon tests depth but does not write it, whatever its ISP word says: the
             // hardware blends each pixel's translucent layers in depth order, so none hides another.
             const bool write = s.depth_write && !d.translucent;
@@ -644,10 +857,24 @@ void Gpu::render(const Frame& frame, const Hardware& hw) {
             d.uniforms.fog = static_cast<int32_t>(s.fog);
             d.uniforms.blend = d.pipeline;
             d.uniforms.alpha_ref = frame.alpha_ref;
-            d.uniforms.order = order;
+            d.uniforms.order = d.translucent ? order : 0;
             d.uniforms.lod_bias = s.mipmap_bias;
-            if (d.count && d.scissor.width > 0 && d.scissor.height > 0)
-                m.draws.push_back(d);
+            if (!d.count || d.scissor.width == 0 || d.scissor.height == 0)
+                continue;
+            // Opaque and punch-through strips that follow each other with the same state draw as one.
+            // A translucent strip's place in the list decides a tie in the sort, so those stay apart.
+            if (!d.translucent && !m.draws.empty()) {
+                Batch& last = m.draws.back();
+                if (!last.translucent && last.first + last.count == d.first && last.pipeline == d.pipeline &&
+                    last.depth == d.depth && last.texture == d.texture && last.sampler == d.sampler &&
+                    last.scissor.x == d.scissor.x && last.scissor.y == d.scissor.y &&
+                    last.scissor.width == d.scissor.width && last.scissor.height == d.scissor.height &&
+                    std::memcmp(&last.uniforms, &d.uniforms, sizeof d.uniforms) == 0) {
+                    last.count += d.count;
+                    continue;
+                }
+            }
+            m.draws.push_back(d);
         }
     }
 
@@ -662,6 +889,10 @@ void Gpu::render(const Frame& frame, const Hardware& hw) {
     p = {};
     p.open = true;
     p.target = frame.target;
+    p.started = m.frame_start;
+    m.frame_start = 0;
+    m.newest = frame.target;
+    m.newest_valid = true;
     p.background = background;
     p.background_depth = background_depth;
     p.z_scale = z_scale;
@@ -682,7 +913,7 @@ void Gpu::render(const Frame& frame, const Hardware& hw) {
     }
 }
 
-void Gpu::present(const Hardware& hw) {
+void Gpu::present(const Hardware& hw, double refresh, bool white, double mark) {
     Impl& m = *impl_;
     if (!m.layer)
         return;
@@ -691,8 +922,14 @@ void Gpu::present(const Hardware& hw) {
     if (pw <= 0 || ph <= 0)
         return;
     m.layer.drawableSize = CGSizeMake(pw, ph);
-    // The display shows the render that the GPU may still draw only once it is checked.
-    if (m.pending.open && m.pending.target == (hw.registers[kFbRSof1] & 0xFFFFFF))
+    // The window shows the newest render, not the framebuffer that FB_R_SOF1 scans out: the port
+    // draws a display list at once, where the console's PowerVR drew it during the next frame, and
+    // the game shows each render at the vertical blank after that. So the newest render is the
+    // picture that the display shows next, a frame before it does. The GPU draws the present after
+    // it. A render that overflowed the pool and is still drawing shows with fragments missing, which
+    // happens at the first frame of a large explosion at most.
+    const uint32_t shown = m.newest_valid ? m.newest : hw.registers[kFbRSof1] & 0xFFFFFF;
+    if (m.pending.open && m.pending.target == shown && (!m.last || m.last.status >= MTLCommandBufferStatusCompleted))
         m.finish();
     id<CAMetalDrawable> drawable = [m.layer nextDrawable];
     if (!drawable)
@@ -701,39 +938,97 @@ void Gpu::present(const Hardware& hw) {
     MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
     pass.colorAttachments[0].texture = drawable.texture;
     pass.colorAttachments[0].loadAction = MTLLoadActionClear;
-    pass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
+    pass.colorAttachments[0].clearColor = white ? MTLClearColorMake(1, 1, 1, 1) : MTLClearColorMake(0, 0, 0, 1);
     pass.colorAttachments[0].storeAction = MTLStoreActionStore;
     id<MTLRenderCommandEncoder> enc = [cmd renderCommandEncoderWithDescriptor:pass];
-    auto it = m.targets.find(hw.registers[kFbRSof1] & 0xFFFFFF);
+    auto it = m.targets.find(shown);
     // The display shows only what a render drew. A title that writes a frame into video memory
     // itself would show black: IKARUGA_RENDER_DEBUG reports each such vertical blank.
     if (it == m.targets.end() && renders > 0 && std::getenv("IKARUGA_RENDER_DEBUG"))
         std::fprintf(stderr, "render: the display shows %08x, which no render drew\n", hw.registers[kFbRSof1]);
-    if (it != m.targets.end()) {
+    if (it != m.targets.end() && !white) {
+        id<MTLTexture> frame = m.bloom ? m.bloomed(it->second) : it->second;
         // 4:3 in the middle of the window, with black bars where it is wider or taller.
         double w = pw, h = pw * 3.0 / 4.0;
         if (h > ph) {
             h = ph;
             w = ph * 4.0 / 3.0;
         }
+        // A frame larger than the window's picture is averaged over each window pixel, which smooths
+        // its edges as supersampling does.
+        const int32_t taps = std::clamp(static_cast<int32_t>(std::ceil(frame.height / h - 0.01)), 1, 8);
+        const Pass p{{static_cast<float>(1.0 / (w * taps)), static_cast<float>(1.0 / (h * taps))}, taps, 0};
         [enc setViewport:(MTLViewport){(pw - w) / 2, (ph - h) / 2, w, h, 0, 1}];
         [enc setRenderPipelineState:m.present];
-        [enc setFragmentTexture:it->second atIndex:0];
+        [enc setFragmentTexture:frame atIndex:0];
         [enc setFragmentSamplerState:m.present_sampler atIndex:0];
+        [enc setFragmentBytes:&p length:sizeof p atIndex:0];
         [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     }
-    if (m.overlay_shown && m.overlay_shown.width == static_cast<NSUInteger>(pw) &&
+    if (!white && m.overlay_shown && m.overlay_shown.width == static_cast<NSUInteger>(pw) &&
         m.overlay_shown.height == static_cast<NSUInteger>(ph)) {
+        const Pass p{{0, 0}, 1, 0};
         [enc setViewport:(MTLViewport){0, 0, static_cast<double>(pw), static_cast<double>(ph), 0, 1}];
         [enc setRenderPipelineState:m.overlay];
         [enc setFragmentTexture:m.overlay_shown atIndex:0];
         [enc setFragmentSamplerState:m.present_sampler atIndex:0];
+        [enc setFragmentBytes:&p length:sizeof p atIndex:0];
         [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     }
     [enc endEncoding];
-    [cmd presentDrawable:drawable];
+    {
+        std::shared_ptr<Impl::Presented> p = m.presented;
+        const double half = refresh_period() / 2;
+        [drawable addPresentedHandler:^(id<MTLDrawable> shown) {
+            const double t = shown.presentedTime;
+            if (t > p->last.load())
+                p->last.store(t);
+            if (refresh > 0 && t > refresh + half)
+                ++p->late;
+            if (p->pacing || mark > 0) {
+                std::lock_guard<std::mutex> lock(p->lock);
+                if (p->pacing)
+                    p->times.push_back(t);
+                if (mark > 0)
+                    p->marks.emplace_back(mark, t);
+            }
+        }];
+    }
+    // Core Animation shows a drawable at about the second refresh after its time, so its time is 1.5
+    // refreshes before the asked one.
+    if (refresh > 0 && m.display_sync)
+        [cmd presentDrawable:drawable atTime:refresh - 1.5 * refresh_period()];
+    else
+        [cmd presentDrawable:drawable];
     [cmd commit];
 }
+
+void Gpu::start_frame(double t) { impl_->frame_start = t; }
+
+double Gpu::take_work() {
+    const double w = impl_->work;
+    impl_->work = 0;
+    return w;
+}
+
+void Gpu::set_display_sync(bool on) {
+    Impl& m = *impl_;
+    if (!m.layer || on == m.display_sync)
+        return;
+    m.display_sync = on;
+    m.layer.displaySyncEnabled = on;
+}
+
+double Gpu::presented() const { return impl_->presented->last.load(); }
+
+uint64_t Gpu::late() const { return impl_->presented->late.load(); }
+
+double Gpu::refresh_period() const {
+    const SDL_DisplayMode* mode = impl_->window ? SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(impl_->window)) : nullptr;
+    return mode && mode->refresh_rate > 0 ? 1.0 / mode->refresh_rate : 1.0 / 60;
+}
+
+double Gpu::now() { return CACurrentMediaTime(); }
 
 void Gpu::set_overlay(const uint32_t* pixels, uint32_t width, uint32_t height) {
     Impl& m = *impl_;
@@ -755,13 +1050,80 @@ void Gpu::set_overlay(const uint32_t* pixels, uint32_t width, uint32_t height) {
     m.overlay_shown = t;
 }
 
-bool Gpu::read_displayed(const Hardware& hw, std::vector<uint32_t>& pixels, uint32_t& width, uint32_t& height) {
-    return read_target(hw.registers[kFbRSof1] & 0xFFFFFF, pixels, width, height);
+bool Gpu::read_displayed(const Hardware& hw, std::vector<uint32_t>& pixels, uint32_t& width, uint32_t& height,
+                         bool bloomed) {
+    return read_target(hw.registers[kFbRSof1] & 0xFFFFFF, pixels, width, height, bloomed);
 }
 
-bool Gpu::read_target(uint32_t address, std::vector<uint32_t>& pixels, uint32_t& width, uint32_t& height) {
-    auto it = impl_->targets.find(address);
-    return it != impl_->targets.end() && impl_->download(it->second, 0, pixels, width, height);
+unsigned Gpu::scale() const { return impl_->scale; }
+
+void Gpu::set_scale(unsigned scale) {
+    Impl& m = *impl_;
+    scale = std::max(1u, scale);
+    if (!m.device || scale == m.scale)
+        return;
+    m.finish();
+    m.scale = scale;
+    m.width = 640 * scale;
+    m.height = 480 * scale;
+    m.size_buffers();
+    id<MTLCommandBuffer> cmd = [m.queue commandBuffer];
+    for (auto& [address, t] : m.targets) {
+        id<MTLTexture> resized = m.picture(m.width, m.height);
+        const auto taps = static_cast<int32_t>((t.height + m.height - 1) / m.height);
+        m.pass(cmd, m.resample, resized, {{1.0f / (m.width * taps), 1.0f / (m.height * taps)}, taps, 0}, t);
+        t = resized;
+    }
+    [cmd commit];
+    m.last = cmd;
+    m.shown_from = nil;
+    std::printf("render: drawing at %ux%u\n", m.width, m.height);
+}
+
+unsigned Gpu::anisotropy() const { return impl_->anisotropy; }
+
+void Gpu::set_anisotropy(unsigned samples) {
+    samples = std::clamp(samples, 1u, 16u);
+    if (samples != impl_->anisotropy) {
+        impl_->anisotropy = samples;
+        impl_->samplers.clear();
+    }
+}
+
+void Gpu::set_hud(bool on) {
+    Impl& m = *impl_;
+    if (!m.layer || on == m.hud)
+        return;
+    m.hud = on;
+    // The mode disabled hides the HUD. IKARUGA_HUD_LOG adds its numbers to the system log.
+    NSMutableDictionary* d = [NSMutableDictionary dictionary];
+    d[@"mode"] = on ? @"default" : @"disabled";
+    if (on && std::getenv("IKARUGA_HUD_LOG"))
+        d[@"logging"] = @"default";
+    m.layer.developerHUDProperties = d;
+}
+
+void Gpu::set_bloom(unsigned level) {
+    level = std::min(level, 2u);
+    if (level != impl_->bloom) {
+        impl_->bloom = level;
+        impl_->shown_from = nil;
+    }
+}
+
+bool Gpu::read_target(uint32_t address, std::vector<uint32_t>& pixels, uint32_t& width, uint32_t& height,
+                      bool bloomed) {
+    Impl& m = *impl_;
+    auto it = m.targets.find(address);
+    if (it == m.targets.end())
+        return false;
+    id<MTLTexture> t = it->second;
+    if (bloomed && m.bloom) {
+        m.finish();
+        t = m.bloomed(t);
+        [m.bloom_passes waitUntilCompleted];
+    }
+    return m.download(t, 0, pixels, width, height);
 }
 
 bool Gpu::read_texture(uint32_t tcw, uint32_t tsp, uint32_t palette_format, std::vector<uint32_t>& pixels,

@@ -21,6 +21,7 @@
 #include "dream/runtime/mem/dc_memory.h"
 #include "dream/runtime/system.h"
 #include "frame.h"
+#include "game_tweaks.h"
 #include "hw.h"
 #include "render/activity.h"
 #include "render/audio.h"
@@ -72,11 +73,13 @@ void usage() {
                  "  --window          open a window: picture, sound, keyboard and gamepad, at the\n"
                  "                    console's speed\n"
                  "  --unthrottled     with --window, run as fast as possible\n"
-                 "  --scale N         draw at N times 640x480 (default 2)\n"
+                 "  --scale N         draw at N times 640x480 (default: the menu's GRAPHICS page, 2 at\n"
+                 "                    first)\n"
                  "  --screenshot-at LIST write the frames drawn at these frames (300,800) to --screenshot-path\n"
                  "  --screenshot-path FILE (default ikaruga.ppm); with several frames, FILE-N.ppm\n"
                  "  --press LIST      scripted presses: start@600,a@700 holds a button for 8 frames,\n"
-                 "                    a@3000-6000 from frame 3000 to 6000\n"
+                 "                    a@3000-6000 from frame 3000 to 6000; 2start@3000 is on a second\n"
+                 "                    controller, which the run then has\n"
                  "  --wav FILE        record the sound as 16-bit stereo at 44.1 kHz\n"
                  "  --no-audio        play no sound in the window\n"
                  "  --record-input FILE  write the controller state of every frame where it changes\n"
@@ -116,18 +119,21 @@ int main(int argc, char** argv) {
     std::vector<uint64_t> screenshots;
     bool window = false, unthrottled = false, audio = true;
     std::string wav_path;
-    int scale = 2;
+    int scale = 0;
     std::string screenshot_path = "ikaruga.ppm";
     struct Press {
         uint64_t from, until;
         uint16_t bit;
+        unsigned player;  // 1: the controller in port B
     };
     std::vector<Press> presses;
+    bool second_presses = false;  // the presses play the controller in port B too
     std::string record_path, replay_path;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         auto next = [&]() -> std::string {
             if (i + 1 >= argc) {
+                std::fprintf(stderr, "ikaruga: %s needs a value\n", a.c_str());
                 usage();
                 std::exit(2);
             }
@@ -158,14 +164,21 @@ int main(int argc, char** argv) {
                 const size_t comma = list.find(',', pos);
                 const std::string item = list.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos);
                 const size_t at = item.find('@');
-                const std::string name = item.substr(0, at);
+                std::string name = item.substr(0, at);
+                unsigned player = 0;
+                if (name.size() > 1 && name[0] == '2') {
+                    player = 1;
+                    name.erase(0, 1);
+                }
                 char* end = nullptr;
                 const uint64_t frame_no = std::strtoull(item.c_str() + at + 1, &end, 0);
                 const uint64_t until = *end == '-' ? std::strtoull(end + 1, nullptr, 0) : frame_no + 8;
                 const uint16_t bit = name == "start" ? 1 << 3 : name == "a" ? 1 << 2 : name == "b" ? 1 << 1
                                    : name == "x" ? 1 << 10 : name == "y" ? 1 << 9 : name == "up" ? 1 << 4
                                    : name == "down" ? 1 << 5 : name == "left" ? 1 << 6 : 1 << 7;
-                presses.push_back({frame_no, until, bit});
+                presses.push_back({frame_no, until, bit, player});
+                if (player)
+                    second_presses = hw::second_pad() = true;
                 if (comma == std::string::npos) break;
                 pos = comma + 1;
             }
@@ -175,6 +188,7 @@ int main(int argc, char** argv) {
         else if (a == "--replay-input") replay_path = next();
         else if (a == "--no-audio") audio = false;
         else {
+            std::fprintf(stderr, "ikaruga: unknown option %s\n", a.c_str());
             usage();
             return 2;
         }
@@ -222,9 +236,19 @@ int main(int argc, char** argv) {
         return render::Hardware{hw::pvr_registers(), hw::system().memory.vram(), dream::mem::DcMemory::kVramSize};
     };
     if (window) {
-        screen = std::make_unique<render::Window>();
         std::string error;
-        if (!screen->open(static_cast<unsigned>(scale), "Ikaruga", error)) {
+        const bool scripted = std::getenv("IKARUGA_AUTOPLAY") || std::getenv("IKARUGA_SHOTS_AFTER") ||
+                              !presses.empty() || !replay_path.empty() || max_frames || !screenshots.empty();
+        // Metal shows its performance HUD only when this is set before the first device; the menu's
+        // METAL HUD then shows or hides it (render/gpu.h). Not in a scripted run, whose output it
+        // would fill with its notes.
+        if (!scripted) {
+            setenv("MTL_HUD_ENABLED", "1", 0);
+            setenv("MTL_HUD_DISABLE_MENU_BAR", "1", 0);  // the menu's row switches it, not the menu bar's
+            hw::second_pad() = true;
+        }
+        screen = std::make_unique<render::Window>();
+        if (!screen->open(static_cast<unsigned>(scale), "Ikaruga", scripted, error)) {
             std::fprintf(stderr, "window: %s\n", error.c_str());
             return 2;
         }
@@ -261,6 +285,12 @@ int main(int argc, char** argv) {
     // A hash of every sample pair, for the summary and IKARUGA_STREAMS: two builds that play the
     // same game make the same sound.
     uint64_t sound_hash = 0xCBF29CE484222325ull;
+    // At full master volume, Ikaruga's mix reaches twice the 16-bit range in busy scenes, and the
+    // clipped peaks distort the explosions. Half the level fits all but the largest explosions,
+    // whose peaks reach four times the range, and the limiter brings those under it.
+    hw::aica().mixer.headroom = 1;
+    static render::Limiter limiter;
+    hw::aica().mixer.before_clamp = [](int32_t& l, int32_t& r) { limiter.process(l, r); };
     hw::aica().on_sample = [&](int16_t l, int16_t r) {
         sound_hash = (sound_hash ^ (uint32_t{static_cast<uint16_t>(l)} | uint32_t{static_cast<uint16_t>(r)} << 16)) *
                      0x100000001B3ull;
@@ -320,6 +350,7 @@ int main(int argc, char** argv) {
     // of it.
     const auto started = std::chrono::steady_clock::now();
     auto paused_for = std::chrono::steady_clock::duration::zero();
+    double last_vblank = 0;  // the guest's seconds at the last vertical blank
     // IKARUGA_PEEK=ADDR[:SIZE][,ADDR[:SIZE]...]: prints the value at each address when it changes, at
     // the vertical blank. SIZE is 1 (the default), 2 or 4; a 4-byte value is printed as a float too.
     struct Peek {
@@ -470,6 +501,7 @@ int main(int argc, char** argv) {
     // after the ending.
     const bool autoplay = std::getenv("IKARUGA_AUTOPLAY") != nullptr;
     bool autoplay_in_stage = false;
+    const render::Tweaks env_tweaks = tweaks::from_environment();
     hw::on_vblank([&] {
         const uint64_t frame = hw::frames();
         if (!dump_dir.empty() && std::find(dump_frames.begin(), dump_frames.end(), frame) != dump_frames.end()) {
@@ -481,6 +513,12 @@ int main(int argc, char** argv) {
         }
         for (const auto& [address, value] : pokes)
             guest::store<uint8_t>(address, value);
+        render::Tweaks t = screen ? screen->tweaks() : render::Tweaks{};
+        t.infinite_lives |= env_tweaks.infinite_lives;
+        t.infinite_charge |= env_tweaks.infinite_charge;
+        t.half_bullets |= env_tweaks.half_bullets;
+        t.no_press_start |= env_tweaks.no_press_start;
+        tweaks::apply(t);
         for (Peek& k : peeks) {
             const int64_t now = k.size == 4   ? guest::load<uint32_t>(k.address)
                                 : k.size == 2 ? guest::load<uint16_t>(k.address)
@@ -495,10 +533,10 @@ int main(int argc, char** argv) {
             k.last = now;
         }
         dream::maple::ControllerState& pad = hw::pad();
-        uint16_t scripted = 0;
+        uint16_t scripted = 0, scripted_second = 0;
         for (const Press& p : presses)
             if (frame >= p.from && frame < p.until)
-                scripted |= p.bit;
+                (p.player ? scripted_second : scripted) |= p.bit;
         if (autoplay) {
             constexpr uint16_t kStart = 1 << 3, kA = 1 << 2;
             if (!autoplay_in_stage && guest::load<float>(0x8C1D142Cu) != 0.0f) {
@@ -529,14 +567,6 @@ int main(int argc, char** argv) {
                 }
                 paused_for += std::chrono::steady_clock::now() - paused_at;
             }
-            if (replayed.empty()) {
-                const render::Controls c = screen->controls();
-                pad.buttons = static_cast<uint16_t>(0xFFFF & ~c.held);
-                pad.joy_x = c.stick_x;
-                pad.joy_y = c.stick_y;
-                pad.ltrigger = c.left;
-                pad.rtrigger = c.right;
-            }
         }
         if (screen) {
             if (is_screenshot(frame)) {
@@ -555,12 +585,43 @@ int main(int argc, char** argv) {
                 std::printf("screenshot of frame %llu: %s\n", static_cast<unsigned long long>(frame), path.c_str());
             }
             if (!unthrottled) {
-                const auto guest = std::chrono::duration<double>(static_cast<double>(hw::now()) / hw::kCpuHz);
-                const auto target =
-                    started + paused_for + std::chrono::duration_cast<std::chrono::steady_clock::duration>(guest);
+                const double seconds = static_cast<double>(hw::now()) / hw::kCpuHz;
+                const auto guest = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                    std::chrono::duration<double>(seconds));
+                const double frame_seconds = seconds - last_vblank;
+                last_vblank = seconds;
+                const auto target = started + paused_for + guest;
                 const auto now = std::chrono::steady_clock::now();
-                if (target > now && target - now < std::chrono::seconds(1))
+                // After a stall of more than two frames, the run catches up by the guest's clock, so
+                // that the sound's queue fills again, and the display paces it again from there.
+                const bool behind = now - target > std::chrono::duration<double>(2 * frame_seconds);
+                if (screen->pace(frame_seconds, behind)) {
+                    // The display paces the run, and the guest's clock goes on from where it is.
+                    paused_for = std::chrono::steady_clock::now() - started - guest;
+                }
+                else if (target > now && target - now < std::chrono::seconds(1))
                     std::this_thread::sleep_for(target - now);
+                sink.set_speed(screen->speed());
+            }
+            // The controls after the pace's sleep, so that the frame reads them as late as it can.
+            if (replayed.empty()) {
+                screen->read_input();
+                auto take = [&](dream::maple::ControllerState& p, unsigned player) {
+                    const render::Controls c = screen->controls(player);
+                    p.buttons = static_cast<uint16_t>(0xFFFF & ~c.held);
+                    p.joy_x = c.stick_x;
+                    p.joy_y = c.stick_y;
+                    p.ltrigger = c.left;
+                    p.rtrigger = c.right;
+                };
+                take(pad, 0);
+                take(hw::pad(1), 1);
+                float dx = 0, dy = 0;
+                uint16_t mouse_buttons = 0;
+                if (screen->mouse(dx, dy, mouse_buttons)) {
+                    pad.buttons = static_cast<uint16_t>(pad.buttons & ~mouse_buttons);
+                    tweaks::ship_by(dx, dy);
+                }
             }
         }
         // Scripted presses add to what the player holds; without a window nobody holds anything.
@@ -571,6 +632,8 @@ int main(int argc, char** argv) {
         else if (!screen)
             pad.buttons = 0xFFFF;
         pad.buttons = static_cast<uint16_t>(pad.buttons & ~scripted);
+        if (second_presses)
+            hw::pad(1).buttons = static_cast<uint16_t>(0xFFFF & ~scripted_second);
         if (record) {
             const Pad& p = pad;
             if (!recorded_any || p.buttons != last_recorded.buttons || p.rtrigger != last_recorded.rtrigger ||
@@ -621,8 +684,10 @@ int main(int argc, char** argv) {
     if (streams)
         std::fclose(streams);
     if (sink.is_open())
-        std::printf("sound: %llu samples, %llu dropped because the run was ahead of the device\n",
-                    static_cast<unsigned long long>(sink.pushed), static_cast<unsigned long long>(sink.dropped));
+        std::printf("sound: %llu samples, %llu dropped because the run was ahead of the device; the queue held %d "
+                    "to %d, the rate ratio ended at %.5f\n",
+                    static_cast<unsigned long long>(sink.pushed), static_cast<unsigned long long>(sink.dropped),
+                    sink.least, sink.most, static_cast<double>(sink.ratio()));
     const hw::Stats& s = hw::stats();
     std::printf("stop: %s after %llu frames\n", why.c_str(), static_cast<unsigned long long>(hw::frames()));
     std::printf("renders %llu, store-queue flushes %llu, interrupts %llu, video events %llu, GD-ROM sectors %llu, "

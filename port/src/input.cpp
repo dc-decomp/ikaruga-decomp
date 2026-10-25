@@ -4,7 +4,8 @@
 // called at the same point, converts the controller state that the launcher keeps (the window's
 // controls, a recording or the autoplay) instead, as Shinobi did: the game copies the whole record
 // each frame. The setup is fixed: a controller in port A and a memory card with a screen in its
-// first slot, as the save directory stands for (saves.cpp). The device layer is never started, so
+// first slot, as the save directory stands for (saves.cpp), and with hw::second_pad() a second
+// controller in port B, for two players. The device layer is never started, so
 // no Maple frame goes out.
 #include <cstddef>
 
@@ -110,7 +111,9 @@ void pdExecPeripheralServerUser() {
         const uint32_t old = guest::load<uint32_t>(r + offsetof(PDS_PERIPHERAL, on));
         guest::store<uint32_t>(r + offsetof(PDS_PERIPHERAL, old), old);
         if (port == 0)
-            controller(r, port, hw::pad(), optimize);
+            controller(r, port, hw::pad(0), optimize);
+        else if (port == 6 && hw::second_pad())
+            controller(r, port, hw::pad(1), optimize);
         else
             clear(r, optimize);
         const uint32_t on = guest::load<uint32_t>(r + offsetof(PDS_PERIPHERAL, on));

@@ -251,6 +251,13 @@ struct CallArgs {
     float fr[8] = {};
     uint32_t stack[16] = {};
     int nr = 0, nfr = 0, nstack = 0;
+    // All 16 words of `stack` go to an interpreted callee, the ones past `nstack` above its
+    // arguments: the differential test's copy of the caller's frame, which the machine code reads.
+    bool caller_frame = false;
+    // The callee-saved registers that a decompiled caller passes (its ctx_ parameters), a bit of
+    // `nctx` for each. An interpreted callee gets cpu::ctx's for the others.
+    uint32_t ctx[16] = {};
+    uint16_t nctx = 0;
 };
 struct CallResult {
     uint32_t r0 = 0, r1 = 0;

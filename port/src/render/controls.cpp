@@ -76,9 +76,11 @@ Binding Binding::parse(const std::string& s) {
 
 Bindings Bindings::defaults() {
     Bindings b;
+    // Player 2 has no keys at first, and the same gamepad inputs as player 1.
     auto set = [&b](Pad c, Binding k, Binding g) {
-        b.keyboard[static_cast<unsigned>(c)] = k;
-        b.gamepad[static_cast<unsigned>(c)] = g;
+        b.keyboard[0][static_cast<unsigned>(c)] = k;
+        b.gamepad[0][static_cast<unsigned>(c)] = g;
+        b.gamepad[1][static_cast<unsigned>(c)] = g;
     };
     set(Pad::A, key(SDL_SCANCODE_Z), button(SDL_GAMEPAD_BUTTON_SOUTH));
     set(Pad::B, key(SDL_SCANCODE_X), button(SDL_GAMEPAD_BUTTON_EAST));
@@ -101,7 +103,7 @@ Bindings Bindings::defaults() {
 
 Bindings Bindings::parse(const std::string& text, std::string& warnings) {
     Bindings b = defaults();
-    std::array<Binding, kPadControls>* section = nullptr;
+    Section* section = nullptr;
     std::istringstream in(text);
     std::string line;
     int number = 0;
@@ -110,8 +112,9 @@ Bindings Bindings::parse(const std::string& text, std::string& warnings) {
         line = trim(line);
         if (line.empty() || line[0] == '#')
             continue;
-        if (line == "[keyboard]" || line == "[gamepad]") {
-            section = line == "[keyboard]" ? &b.keyboard : &b.gamepad;
+        if (line == "[keyboard]" || line == "[gamepad]" || line == "[keyboard 2]" || line == "[gamepad 2]") {
+            const unsigned player = line.find(" 2]") != std::string::npos ? 1 : 0;
+            section = line.rfind("[keyboard", 0) == 0 ? &b.keyboard[player] : &b.gamepad[player];
             continue;
         }
         const size_t eq = line.find('=');
@@ -125,6 +128,10 @@ Bindings Bindings::parse(const std::string& text, std::string& warnings) {
                 b.deadzone_percent = std::clamp(std::atoi(value.c_str()), 0, 90);
             else if (name == "trigger_ramp")
                 b.trigger_ramp = value != "0";
+            else if (name == "mouse")
+                b.mouse = value == "1";
+            else if (name == "pad" || name == "pad2")
+                b.pad[name == "pad" ? 0 : 1] = std::clamp(std::atoi(value.c_str()) - 1, 0, 1);
             else if (name != "version")
                 warnings += "line " + std::to_string(number) + ": unknown setting " + name + "\n";
             continue;
@@ -148,9 +155,14 @@ std::string Bindings::text() const {
       << "# The inputs are SDL's own names.\n"
       << "version = 1\n"
       << "deadzone = " << deadzone_percent << "\n"
-      << "trigger_ramp = " << (trigger_ramp ? 1 : 0) << "\n";
-    for (const auto* section : {&keyboard, &gamepad}) {
-        o << (section == &keyboard ? "\n[keyboard]\n" : "\n[gamepad]\n");
+      << "trigger_ramp = " << (trigger_ramp ? 1 : 0) << "\n"
+      << "mouse = " << (mouse ? 1 : 0) << "\n"
+      << "pad = " << pad[0] + 1 << "\n"
+      << "pad2 = " << pad[1] + 1 << "\n";
+    const std::pair<const Section*, const char*> sections[] = {
+        {&keyboard[0], "[keyboard]"}, {&gamepad[0], "[gamepad]"}, {&keyboard[1], "[keyboard 2]"}, {&gamepad[1], "[gamepad 2]"}};
+    for (const auto& [section, name] : sections) {
+        o << "\n" << name << "\n";
         for (unsigned i = 0; i < kPadControls; ++i) o << kNames[i].key << " = " << (*section)[i].text() << "\n";
     }
     return o.str();
@@ -196,41 +208,48 @@ void Input::update(bool enabled) {
     last_ns_ = now;
     const bool* keys = SDL_GetKeyboardState(nullptr);
     const float dead = static_cast<float>(bindings.deadzone_percent) / 100.0f;
-    for (unsigned i = 0; i < kPadControls; ++i) {
-        bool digital = false;
-        float analogue = 0.0f;
-        if (enabled) {
-            const Binding& k = bindings.keyboard[i];
-            if (keys && k.source == Binding::Source::Key && keys[k.code])
-                digital = true;
-            const Binding& g = bindings.gamepad[i];
-            for (SDL_Gamepad* p : pads) {
-                if (g.source == Binding::Source::Button &&
-                    SDL_GetGamepadButton(p, static_cast<SDL_GamepadButton>(g.code)))
-                    digital = true;
-                if (g.source == Binding::Source::Axis) {
+    for (unsigned p = 0; p < kPlayers; ++p) {
+        const int which = bindings.pad[p];
+        SDL_Gamepad* pad = which >= 0 && static_cast<size_t>(which) < pads.size() ? pads[static_cast<size_t>(which)] : nullptr;
+        bool by_key = false, by_pad = false;
+        for (unsigned i = 0; i < kPadControls; ++i) {
+            bool digital = false;
+            float analogue = 0.0f;
+            if (enabled) {
+                const Binding& k = bindings.keyboard[p][i];
+                if (keys && k.source == Binding::Source::Key && keys[k.code])
+                    digital = by_key = true;
+                const Binding& g = bindings.gamepad[p][i];
+                if (pad && g.source == Binding::Source::Button &&
+                    SDL_GetGamepadButton(pad, static_cast<SDL_GamepadButton>(g.code)))
+                    digital = by_pad = true;
+                if (pad && g.source == Binding::Source::Axis) {
                     // The bound half only, so left and right are two bindings on one stick, and
                     // rescaled from the dead zone's edge, so the value does not jump there.
-                    const float raw = SDL_GetGamepadAxis(p, static_cast<SDL_GamepadAxis>(g.code)) / 32767.0f;
+                    const float raw = SDL_GetGamepadAxis(pad, static_cast<SDL_GamepadAxis>(g.code)) / 32767.0f;
                     const float half = g.sign < 0 ? -raw : raw;
-                    if (half > dead)
-                        analogue = std::max(analogue, std::min(1.0f, (half - dead) / (1.0f - dead)));
+                    if (half > dead) {
+                        analogue = std::min(1.0f, (half - dead) / (1.0f - dead));
+                        by_pad = true;
+                    }
                 }
             }
+            const bool trigger = i == static_cast<unsigned>(Pad::LeftTrigger) || i == static_cast<unsigned>(Pad::RightTrigger);
+            if (trigger && bindings.trigger_ramp) {
+                ramp_[p][i] = digital ? std::min(1.0f, ramp_[p][i] + dt / 0.15f) : 0.0f;
+                value_[p][i] = std::max(analogue, ramp_[p][i]);
+            }
+            else {
+                ramp_[p][i] = 0.0f;
+                value_[p][i] = digital ? 1.0f : analogue;
+            }
         }
-        const bool trigger = i == static_cast<unsigned>(Pad::LeftTrigger) || i == static_cast<unsigned>(Pad::RightTrigger);
-        if (trigger && bindings.trigger_ramp) {
-            ramp_[i] = digital ? std::min(1.0f, ramp_[i] + dt / 0.15f) : 0.0f;
-            value_[i] = std::max(analogue, ramp_[i]);
-        }
-        else {
-            ramp_[i] = 0.0f;
-            value_[i] = digital ? 1.0f : analogue;
-        }
+        if (by_key != by_pad)
+            on_keyboard_[p] = by_key;
     }
 }
 
-Controls Input::controls() const {
+Controls Input::controls(unsigned player) const {
     Controls c;
     const std::pair<Pad, uint16_t> buttons[] = {
         {Pad::A, kButtonA},   {Pad::B, kButtonB},       {Pad::X, kButtonX},       {Pad::Y, kButtonY},
@@ -238,13 +257,13 @@ Controls Input::controls() const {
         {Pad::Right, kButtonRight},
     };
     for (const auto& [pad, bit] : buttons)
-        if (value(pad) > 0.0f)
+        if (value(player, pad) > 0.0f)
             c.held |= bit;
     auto byte = [](float v) { return static_cast<uint8_t>(std::clamp(128.0f + v * 127.0f, 0.0f, 255.0f)); };
-    c.stick_x = byte(value(Pad::StickRight) - value(Pad::StickLeft));
-    c.stick_y = byte(value(Pad::StickDown) - value(Pad::StickUp));
-    c.left = static_cast<uint8_t>(value(Pad::LeftTrigger) * 255.0f);
-    c.right = static_cast<uint8_t>(value(Pad::RightTrigger) * 255.0f);
+    c.stick_x = byte(value(player, Pad::StickRight) - value(player, Pad::StickLeft));
+    c.stick_y = byte(value(player, Pad::StickDown) - value(player, Pad::StickUp));
+    c.left = static_cast<uint8_t>(value(player, Pad::LeftTrigger) * 255.0f);
+    c.right = static_cast<uint8_t>(value(player, Pad::RightTrigger) * 255.0f);
     return c;
 }
 

@@ -1,14 +1,20 @@
-// The player's controls: which key, gamepad button or gamepad axis drives each part of the
+// The players' controls: which key, gamepad button or gamepad axis drives each part of the
 // Dreamcast controller, and the controller state they give. The bindings live in a text file in
-// SDL's preference folder, in the format dream-recomp's launcher writes, so its file can seed ours:
+// SDL's preference folder, in the format dream-recomp's launcher writes, so its file can seed ours.
+// Player 2's sections and the gamepad choice are this port's own:
 //
 //   deadzone = 20            a stick's dead zone in percent
 //   trigger_ramp = 1         a key or button on a trigger rises to full over 0.15 s
+//   mouse = 0                the mouse moves player 1's ship, and the buttons play
+//   pad = 1                  the gamepad of player 1, in the order of plugging in
+//   pad2 = 2                 and of player 2
 //   [keyboard]
 //   a = key:Z                SDL's scancode names
 //   [gamepad]
 //   a = button:a             SDL's gamepad button names
 //   stick_left = axis:leftx- SDL's gamepad axis names, with the half of the axis that counts
+//   [keyboard 2]             player 2's keys
+//   [gamepad 2]              and player 2's gamepad inputs
 #pragma once
 
 #include <array>
@@ -25,6 +31,7 @@ enum class Pad : unsigned {
     Count
 };
 constexpr unsigned kPadControls = static_cast<unsigned>(Pad::Count);
+constexpr unsigned kPlayers = 2;
 
 // The file's name for a control, and the screen's.
 const char* pad_key(Pad c);
@@ -39,9 +46,14 @@ struct Binding {
 };
 
 struct Bindings {
-    std::array<Binding, kPadControls> keyboard{}, gamepad{};
+    using Section = std::array<Binding, kPadControls>;
+    std::array<Section, kPlayers> keyboard{}, gamepad{};
+    // Each player's gamepad, by its place in the order of plugging in.
+    std::array<int, kPlayers> pad = {0, 1};
     int deadzone_percent = 20;
     bool trigger_ramp = true;
+    // The mouse moves player 1's ship (game_tweaks.h) while player 1 plays on the keyboard.
+    bool mouse = false;
     static Bindings defaults();
     // Unknown lines are reported in `warnings` and skipped: the defaults fill what a file leaves.
     static Bindings parse(const std::string& text, std::string& warnings);
@@ -65,18 +77,21 @@ constexpr uint16_t kButtonC = 1 << 0, kButtonB = 1 << 1, kButtonA = 1 << 2, kBut
                    kButtonUp = 1 << 4, kButtonDown = 1 << 5, kButtonLeft = 1 << 6, kButtonRight = 1 << 7,
                    kButtonY = 1 << 9, kButtonX = 1 << 10;
 
-// Reads the keyboard and every open gamepad through the bindings.
+// Reads the keyboard and the players' gamepads through the bindings.
 class Input {
 public:
     Bindings bindings;
-    std::vector<SDL_Gamepad*> pads;
-    // Once per frame. `enabled` false gives a released controller, as while a binding is captured.
+    std::vector<SDL_Gamepad*> pads;  // in the order of plugging in
+    // Once per frame. `enabled` false gives released controllers, as while a binding is captured.
     void update(bool enabled);
-    Controls controls() const;
-    float value(Pad c) const { return value_[static_cast<unsigned>(c)]; }
+    Controls controls(unsigned player) const;
+    float value(unsigned player, Pad c) const { return value_[player][static_cast<unsigned>(c)]; }
+    // Whether the player's last input came from the keyboard, not from the gamepad.
+    bool on_keyboard(unsigned player) const { return on_keyboard_[player]; }
 
 private:
-    std::array<float, kPadControls> value_{}, ramp_{};
+    std::array<std::array<float, kPadControls>, kPlayers> value_{}, ramp_{};
+    std::array<bool, kPlayers> on_keyboard_ = {true, true};
     uint64_t last_ns_ = 0;
 };
 

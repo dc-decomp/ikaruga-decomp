@@ -118,6 +118,8 @@ Sint32 buLoadFile(Sint32 drive, gptr<char> fname, gptr<void> buf, Uint32 nblock)
         guest::io_write_block(buf.a, data.data(), n);
     last_error = kOk;
     log("load", fname, last_error);
+    std::error_code ec;
+    std::printf("card: loaded %s\n", fs::absolute(path_of(fname), ec).string().c_str());
     return kOk;
 }
 
@@ -148,6 +150,13 @@ Sint32 buSaveFile(Sint32 drive, gptr<char> fname, gptr<void> buf, Uint32 nblock,
         last_error = out && !ec ? kOk : kWriteError;
     }
     log("save", fname, last_error);
+    // The game saves at a change of scene when AUTO SAVE is on in its options, and from its BACKUP
+    // menu.
+    if (last_error == kOk)
+        std::printf("card: saved %s\n", fs::absolute(path, ec).string().c_str());
+    else
+        std::fprintf(stderr, "card: %s not saved: %s\n", fs::absolute(path, ec).string().c_str(),
+                     last_error == kDiskFull ? "the card is full" : "the file cannot be written");
     return last_error;
 }
 

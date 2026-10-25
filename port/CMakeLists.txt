@@ -57,6 +57,7 @@ add_library(ikaruga_render STATIC
   src/render/window.cpp
   src/render/controls.cpp
   src/render/menu.cpp
+  src/render/settings.cpp
   src/render/overlay.mm
   src/render/activity.mm
   src/render/audio.cpp
@@ -102,8 +103,27 @@ add_executable(ikaruga
   src/trace.cpp
   src/video.cpp
   src/diff.cpp
+  src/game_tweaks.cpp
   src/sh4/sh4.cpp
   src/sh4/selftest.cpp)
 target_link_libraries(ikaruga PRIVATE ikaruga_decomp ikaruga_render dream::runtime)
 target_compile_options(ikaruga PRIVATE -g -Wall -Wextra -Wno-unused-parameter -fwrapv -fno-strict-aliasing
                        -ffp-contract=off)
+
+# Ikaruga.app: the same program in an app bundle, whose Info.plist declares it a game, so that macOS
+# turns on Game Mode while its window is in fullscreen. It reads the disc relative to the working
+# directory too, so run Ikaruga.app/Contents/MacOS/ikaruga from the repository's root.
+set(IKARUGA_BUNDLE "${CMAKE_CURRENT_BINARY_DIR}/Ikaruga.app")
+configure_file(Info.plist.in "${CMAKE_CURRENT_BINARY_DIR}/Info.plist" COPYONLY)
+add_custom_command(OUTPUT "${IKARUGA_BUNDLE}/Contents/MacOS/ikaruga"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${IKARUGA_BUNDLE}/Contents/MacOS"
+  COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_BINARY_DIR}/Info.plist" "${IKARUGA_BUNDLE}/Contents/Info.plist"
+  # A new file each time: macOS kills a program whose file was written over after it ran.
+  COMMAND ${CMAKE_COMMAND} -E rm -f "${IKARUGA_BUNDLE}/Contents/MacOS/ikaruga"
+  COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:ikaruga>" "${IKARUGA_BUNDLE}/Contents/MacOS/ikaruga"
+  # An ad-hoc signature, which seals the Info.plist with the program.
+  COMMAND codesign --force --sign - "${IKARUGA_BUNDLE}"
+  DEPENDS ikaruga "${CMAKE_CURRENT_BINARY_DIR}/Info.plist"
+  COMMENT "Ikaruga.app"
+  VERBATIM)
+add_custom_target(bundle ALL DEPENDS "${IKARUGA_BUNDLE}/Contents/MacOS/ikaruga")

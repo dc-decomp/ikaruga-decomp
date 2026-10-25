@@ -517,3 +517,14 @@ void cameraUpdate(Camera *camera);
 void cameraDraw(Camera *camera);
 void cameraOrbit(Camera *camera);
 void cameraView(Camera *camera);
+
+/* Text from a printf format at (x, y), in cells of 16 pixels. SHC passes the format and its values
+   on the stack, where each call's C has them after r4 to r7. */
+void textPrintf(float x, float y, ...);
+/* The screen of a failed disc read, with `message` (DISC READ ERROR, FILE READ ERROR), until the
+   tray opens. */
+void discErrorScreen(char *message);
+
+/* A lens flare's task in list 4: `init` gets the task once, to set the light's angles at 0x14 and
+   0x18, and the task's update calls `update` with it at each run. */
+void lensFlareCreate(TaskFunction init, TaskFunction update);

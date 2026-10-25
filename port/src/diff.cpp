@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <map>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -31,6 +32,8 @@ int g_log_count = [] {
 }();
 int g_shadow = 0;
 bool g_testing = false;
+bool g_hold = false;
+uint64_t g_hold_from = 0;
 uint64_t g_hw_accesses = 0;
 
 namespace {
@@ -71,7 +74,7 @@ struct Registers {
 struct Function {
     const char* name = nullptr;
     int tested = 0, inconclusive = 0, abandoned = 0;
-    bool failed = false, hardware = false;
+    bool failed = false, hardware = false, nested = false;
     const char* aborted = nullptr;
 };
 
@@ -208,6 +211,7 @@ void record(const char* name, uint32_t address, const CallArgs* args) {
 }
 
 uint64_t g_activity = 0;
+bool g_own_state = false;  // own_state()
 uint64_t g_accesses = 0;
 std::chrono::steady_clock::time_point g_started;
 Registers g_expected_regs;
@@ -272,6 +276,14 @@ void compare_words(const char* area, uint32_t base, const uint8_t* expected, con
 }  // namespace
 
 void log_call(const char* name, const CallArgs* args) { record(name, 0, args); }
+
+void note_nested(uint32_t address, const char* name) {
+    if (!g_only.empty() && std::find(g_only.begin(), g_only.end(), address) == g_only.end())
+        return;
+    Function& f = g_functions[address];
+    f.name = name;
+    f.nested = true;
+}
 
 void log_interpreted(uint32_t address, const CallArgs& args) {
     if (g_skip_next_run) {
@@ -449,6 +461,9 @@ bool shadow(uint32_t address, const char* name, const CallArgs& args) {
     g_entry_sp = sp;
     g_activity = activity();
     g_testing = true;
+    g_hold = true;
+    g_hold_from = hw::now();
+    g_own_state = false;
     g_hw_accesses = 0;
     return true;
 }
@@ -459,12 +474,20 @@ void note_result(uint32_t bits, bool fpu) {
     g_result_fpu = fpu;
 }
 
-void finish(bool unwinding) {
-    g_active = false;
-    g_testing = false;
+void own_state() {
+    if (g_testing)
+        g_own_state = true;
+}
+
+namespace {
+
+void compare() {
     Function& f = g_functions[g_address];
-    if (unwinding)
+    if (g_own_state) {
+        if (++f.inconclusive >= kInconclusiveLimit && !f.tested)
+            f.aborted = "cannot see the port's state that the C++ answers from";
         return;
+    }
     if (activity() != g_activity) {
         if (++f.inconclusive >= kInconclusiveLimit && !f.tested)
             f.aborted = "meets a hardware event at every call";
@@ -548,12 +571,25 @@ void finish(bool unwinding) {
     }
 }
 
+}  // namespace
+
+void finish(bool unwinding) {
+    g_active = false;
+    g_testing = false;
+    g_hold = false;
+    if (unwinding)
+        return;
+    compare();
+    hw::tick(0);  // the events that waited for the body
+}
+
 void report(std::FILE* out) {
     if (!g_on)
         return;
     int tested = 0, failed = 0, inconclusive = 0;
     std::string hardware;
     std::map<std::string, int> aborted;
+    std::set<std::string> nested;
     for (const auto& [a, f] : g_functions) {
         if (f.failed && f.hardware)
             hardware += std::string(" ") + f.name;
@@ -565,6 +601,8 @@ void report(std::FILE* out) {
             ++aborted[f.aborted];
         else if (f.inconclusive)
             ++inconclusive;
+        else if (f.nested)
+            nested.insert(f.name);
     }
     std::fprintf(out, "diff: %d functions match the machine code, %d differ, %d only inconclusive\n", tested, failed,
                  inconclusive);
@@ -572,6 +610,12 @@ void report(std::FILE* out) {
         std::fprintf(out, "  differ, but access registers:%s\n", hardware.c_str());
     for (const auto& [why, n] : aborted)
         std::fprintf(out, "  %d not tested: the machine code %s\n", n, why.c_str());
+    if (!nested.empty()) {
+        std::fprintf(out, "  %zu not tested: called only inside tested calls:", nested.size());
+        for (const std::string& name : nested)
+            std::fprintf(out, " %s", name.c_str());
+        std::fprintf(out, "\n");
+    }
 }
 
 }  // namespace diff

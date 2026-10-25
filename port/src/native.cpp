@@ -115,7 +115,7 @@ gptr<void> _slow_strcpy(gptr<void> dst, gptr<void> src) {
 
 }  // namespace game
 
-// ---- sprintf ---------------------------------------------------------------------------------------
+// ---- sprintf and textPrintf ------------------------------------------------------------------------
 
 namespace game {
 
@@ -196,6 +196,33 @@ int format_words(gptr<char> buffer, uint32_t format, const uint32_t* words, size
         guest::store<uint8_t>(buffer.a + static_cast<uint32_t>(k), static_cast<uint8_t>(out[k]));
     guest::store<uint8_t>(buffer.a + static_cast<uint32_t>(out.size()), 0);
     return static_cast<int>(out.size());
+}
+
+// The game's vsprintf reads the values from where the machine code's caller left them on the stack.
+// The text goes through the buffer at 0x8C1CAF38. On the rotated screen, x runs down the screen
+// from 0x8C06B154's width.
+void text_printf(float x, float y, uint32_t format, const uint32_t* values, size_t count) {
+    guest::Frame frame(12 + 4 * 8);
+    const uint32_t position = frame.top - 12, words = position - 4 * 8;
+    for (size_t i = 0; i < count && i < 8; ++i)
+        guest::store<uint32_t>(words + 4u * static_cast<uint32_t>(i), values[i]);
+    const gptr<char> buffer(0x8C1CAF38u);
+    if (screenHorizontal != 0)
+        clipOff();
+    vsprintf(buffer, gptr<char>(format), gptr<char>(words));
+    const float cell = guest::load<float>(0x8C06B150u);
+    if (screenHorizontal == 0) {
+        guest::store<float>(position, guest::load<float>(0x8C06B154u) - y * cell);
+        guest::store<float>(position + 4, x * cell);
+    }
+    else {
+        guest::store<float>(position, x * cell);
+        guest::store<float>(position + 4, y * cell);
+    }
+    guest::store<uint32_t>(position + 8, guest::load<uint32_t>(0x8C06B158u));
+    textDraw(0x4000000, buffer, gptr<float>(position), 0);
+    if (screenHorizontal != 0)
+        clipPlayArea();
 }
 
 
