@@ -214,6 +214,8 @@ template <class T>
 struct gref;
 template <class T>
 struct garray;
+template <class T, size_t N>
+struct inarray;
 struct gfunc;
 
 template <class T>
@@ -224,6 +226,10 @@ template <class T>
 struct is_gref : std::false_type {};
 template <class T>
 struct is_gref<gref<T>> : std::true_type {};
+template <class T>
+struct is_inarray : std::false_type {};
+template <class T, size_t N>
+struct is_inarray<inarray<T, N>> : std::true_type {};
 
 // The size a pointer step moves: 1 for void and for functions, like GCC.
 template <class T>
@@ -442,8 +448,9 @@ struct gfunc {
             return true;
         }
         else if constexpr (std::is_same_v<V, CallResult> || std::is_pointer_v<V> || std::is_array_v<V> ||
-                           is_gptr<V>::value || sizeof(V) <= 4) {
-            // An array in guest memory, such as a string's label, passes its address.
+                           is_inarray<V>::value || is_gptr<V>::value || sizeof(V) <= 4) {
+            // An array in guest memory, such as a string's label or a structure's array field,
+            // passes its address.
             list[n++] = {to_word(v), false, false};
             return true;
         }
@@ -916,6 +923,15 @@ struct inarray {
     template <class U>
     operator gptr<U>() const {
         return gptr<U>(guest::address_of(this));
+    }
+    // Arithmetic on the decayed array steps by elements: hitInit passes hit->shapes + 1.
+    template <class I, std::enable_if_t<std::is_integral_v<I>, int> = 0>
+    gptr<T> operator+(I i) const {
+        return gptr<T>(guest::address_of(this)) + i;
+    }
+    template <class I, std::enable_if_t<std::is_integral_v<I>, int> = 0>
+    gptr<T> operator-(I i) const {
+        return gptr<T>(guest::address_of(this)) + -static_cast<int64_t>(i);
     }
 };
 

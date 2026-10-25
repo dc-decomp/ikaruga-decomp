@@ -258,7 +258,12 @@ int main(int argc, char** argv) {
     };
     if (wav)
         wav_header();
+    // A hash of every sample pair, for the summary and IKARUGA_STREAMS: two builds that play the
+    // same game make the same sound.
+    uint64_t sound_hash = 0xCBF29CE484222325ull;
     hw::aica().on_sample = [&](int16_t l, int16_t r) {
+        sound_hash = (sound_hash ^ (uint32_t{static_cast<uint16_t>(l)} | uint32_t{static_cast<uint16_t>(r)} << 16)) *
+                     0x100000001B3ull;
         if (sink.is_open())
             sink.push(l, r);
         if (wav) {
@@ -380,10 +385,10 @@ int main(int argc, char** argv) {
         });
     }
     // IKARUGA_STREAMS=FILE: one line for each render: its number, the frame, the display list's
-    // words, and hashes of the display list, of the registers the renderer reads, of video memory
-    // and of the decoded display list, which leaves out the words that the renderer ignores. Two
-    // builds that play the same game give the same lines. A change that moves the timing changes
-    // them: the game's animations read the time.
+    // words, and hashes of the display list, of the registers the renderer reads, of video memory,
+    // of the decoded display list, which leaves out the words that the renderer ignores, and of the
+    // sound so far. Two builds that play the same game give the same lines. A change that moves the
+    // timing changes them: the game's animations read the time.
     std::FILE* streams = nullptr;
     if (const char* path = std::getenv("IKARUGA_STREAMS")) {
         streams = std::fopen(path, "w");
@@ -391,7 +396,7 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "IKARUGA_STREAMS: cannot write %s\n", path);
             return 2;
         }
-        hw::on_render([streams, &hardware, n = uint64_t{0}](const std::vector<uint32_t>& stream) mutable {
+        hw::on_render([streams, &hardware, &sound_hash, n = uint64_t{0}](const std::vector<uint32_t>& stream) mutable {
             const auto hash = [](const void* data, size_t bytes, uint64_t h = 0xCBF29CE484222325ull) {
                 const auto* p = static_cast<const uint8_t*>(data);
                 for (size_t i = 0; i + 4 <= bytes; i += 4) {
@@ -413,12 +418,13 @@ int main(int argc, char** argv) {
             static render::TaDecoder decoder;
             decoder.reset();
             decoder.feed(stream.data(), stream.size());
-            std::fprintf(streams, "%llu %llu %zu %016llx %016llx %016llx %016llx\n", static_cast<unsigned long long>(n++),
-                         static_cast<unsigned long long>(hw::frames()), stream.size(),
-                         static_cast<unsigned long long>(hash(stream.data(), stream.size() * 4)),
+            std::fprintf(streams, "%llu %llu %zu %016llx %016llx %016llx %016llx %016llx\n",
+                         static_cast<unsigned long long>(n++), static_cast<unsigned long long>(hw::frames()),
+                         stream.size(), static_cast<unsigned long long>(hash(stream.data(), stream.size() * 4)),
                          static_cast<unsigned long long>(regs),
                          static_cast<unsigned long long>(hash(hw.vram, hw.vram_size)),
-                         static_cast<unsigned long long>(frame::hash(decoder.list())));
+                         static_cast<unsigned long long>(frame::hash(decoder.list())),
+                         static_cast<unsigned long long>(sound_hash));
         });
     }
     // IKARUGA_POKE=ADDR=BYTE[,ADDR=BYTE...]: writes these bytes at each vertical blank, e.g. to keep
@@ -620,10 +626,11 @@ int main(int argc, char** argv) {
     const hw::Stats& s = hw::stats();
     std::printf("stop: %s after %llu frames\n", why.c_str(), static_cast<unsigned long long>(hw::frames()));
     std::printf("renders %llu, store-queue flushes %llu, interrupts %llu, video events %llu, GD-ROM sectors %llu, "
-                "sound samples %llu\n",
+                "sound samples %llu, sound hash %016llx\n",
                 static_cast<unsigned long long>(hw::renders()), static_cast<unsigned long long>(s.sq_flushes),
                 static_cast<unsigned long long>(s.interrupts), static_cast<unsigned long long>(s.video_events),
-                static_cast<unsigned long long>(s.gd_sectors), static_cast<unsigned long long>(hw::aica().samples));
+                static_cast<unsigned long long>(s.gd_sectors), static_cast<unsigned long long>(hw::aica().samples),
+                static_cast<unsigned long long>(sound_hash));
     hw::report_interrupts(stdout);
     sh4::report_profile(stdout);
     cpu::report_mask_changes(stdout);

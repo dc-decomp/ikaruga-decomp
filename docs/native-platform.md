@@ -74,12 +74,18 @@ The Metal renderer handles all of it.
    format, sampling, clip and vertices, and the frame's target, clip, background, fog, palette and
    punch-through threshold. `translate()` makes them from the decoded parameters and the registers,
    and `Window::on_frame` gets each frame between the two, where a mod reads and changes it. Ninja
-   still writes each draw as the tile accelerator's 32-byte parameter. Its helpers can fill the
-   records directly next, with the decoded parameters as the reference: both must give the same
-   records.
+   keeps writing each draw as the tile accelerator's 32-byte parameter into the host's list
+   (decided). About 40 places in Ninja's and Kamui's natives write these words, and `IKARUGA_DIFF`
+   compares them with what the machine code writes. Records filled there would lose that test and
+   give a mod nothing that the frame does not give. A draw names its texture's address and format,
+   so a mod can identify a texture by its texels in video memory.
 6. **The game's code named and typed**, module by module, through Ghidra's types and names and
-   `tools/decomp/convert.py`, starting with the task system and the game's objects.
+   `tools/decomp/convert.py`. Begun: the frame, the scenes, the task system, the fade and the data
+   that the port's tools use have names ([game.md](game.md)). `game/types.h` gives the task system
+   its types, and the fourth column of `game/globals.tsv` types the data. The game's objects come
+   next.
 
 Each step keeps the game the same: `tools/port/check.py` with its pictures, and
 `IKARUGA_STREAMS`, whose lines give for each render the frame, the registers' hash, video memory's
-hash and the decoded display list's hash. Two builds that render the same give the same lines.
+hash, the decoded display list's hash and the hash of the sound so far. Two builds that render and
+sound the same give the same lines.

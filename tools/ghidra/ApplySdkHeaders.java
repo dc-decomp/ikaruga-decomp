@@ -2,10 +2,11 @@
 // whose name matches a parsed prototype that signature, so calls into the SDK decompile with real
 // argument types and the right float registers.
 //
-// The headers are SDK files. They are read from the user's SDK copy at analysis time, and what they
-// produce stays in the Ghidra project, which git ignores.
-// Usage (headless): -postScript ApplySdkHeaders.java <include dir> <header,header,...> [-Dname ...]
-// Without the include directory the script does nothing.
+// The analysis reads game/sdk.h, the part of the headers that it uses, which ExportSdkHeader.java
+// writes from an SDK copy. With an include directory, the script reads the SDK's own headers.
+// Usage (headless): -postScript ApplySdkHeaders.java <header file>
+//                   -postScript ApplySdkHeaders.java <include dir> <header,header,...> [-Dname ...]
+// Without the file or the directory the script does nothing.
 //@category Dreamcast
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -43,26 +44,34 @@ public class ApplySdkHeaders extends GhidraScript {
     public void run() throws Exception {
         String[] args = getScriptArgs();
         File include = new File(args[0]);
-        if (!include.isDirectory()) {
-            println("ApplySdkHeaders: no include directory " + include + ", skipped");
+        List<String> files = new ArrayList<>();
+        String[] defines = new String[0];
+        if (include.isFile()) {
+            files.add(include.getPath());
+            include = include.getAbsoluteFile().getParentFile();
+        }
+        else if (include.isDirectory()) {
+            // Some headers end with a DOS end-of-file byte (0x1A), which the C lexer rejects, and
+            // spell empty parameter lists with a typedef. Parse a corrected copy in the temp
+            // directory, so the SDK copy itself stays as it is.
+            include = cleanCopy(include);
+            // The SDK's file names vary in case; the include directives inside it do too, which the
+            // preprocessor resolves against the directory on a case-insensitive file system.
+            for (String h : args[1].split(",")) {
+                File dir = include;
+                File[] match = dir.listFiles((d, n) -> n.equalsIgnoreCase(h));
+                if (match == null || match.length == 0) {
+                    println("ApplySdkHeaders: no " + h + " in " + include);
+                    continue;
+                }
+                files.add(match[0].getPath());
+            }
+            defines = Arrays.copyOfRange(args, 2, args.length);
+        }
+        else {
+            println("ApplySdkHeaders: no header or include directory " + include + ", skipped");
             return;
         }
-        // Some headers end with a DOS end-of-file byte (0x1A), which the C lexer rejects, and spell
-        // empty parameter lists with a typedef. Parse a corrected copy in the temp directory, so
-        // the SDK copy itself stays as it is.
-        include = cleanCopy(include);
-        // The SDK's file names vary in case; the include directives inside it do too, which the
-        // preprocessor resolves against the directory on a case-insensitive file system.
-        List<String> files = new ArrayList<>();
-        for (String h : args[1].split(",")) {
-            File[] match = include.listFiles((d, n) -> n.equalsIgnoreCase(h));
-            if (match == null || match.length == 0) {
-                println("ApplySdkHeaders: no " + h + " in " + include);
-                continue;
-            }
-            files.add(match[0].getPath());
-        }
-        String[] defines = Arrays.copyOfRange(args, 2, args.length);
 
         DataTypeManager dtm = currentProgram.getDataTypeManager();
         CParseResults r = CParserUtils.parseHeaderFiles(null, files.toArray(new String[0]),

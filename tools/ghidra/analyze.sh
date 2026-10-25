@@ -11,10 +11,13 @@
 # finds about twice as many entries in a Katana binary as Ghidra's analysis alone.
 #
 # Names come from game/symbols.tsv (functions) and game/globals.tsv (data). Both hold the names that
-# tools/symbols/match_libs.py finds in a Katana SDK, and the names added by hand.
+# tools/symbols/match_libs.py finds in a Katana SDK, and the names added by hand. The game's own
+# types and prototypes come from game/types.h, and a type in globals.tsv's fourth column types that
+# data.
 #
-# Prototypes and types come from the Katana SDK headers in SDK_INCLUDE (default: the R2.00J copy
-# unpacked under sdk/). Without them the functions keep the signatures Ghidra guessed.
+# Prototypes and types come from game/sdk.h, the part of the Katana SDK's headers that the analysis
+# uses. tools/ghidra/sdk_header.sh writes it from an SDK copy. Without it the functions keep the
+# signatures Ghidra guessed.
 #
 # Overrides: GHIDRA_HOME, JAVA_HOME, GHIDRA_LANGUAGE, DREAM_TRANSLATE.
 set -euo pipefail
@@ -24,7 +27,7 @@ ghidra=${GHIDRA_HOME:-/opt/homebrew/opt/ghidra/libexec}
 language=${GHIDRA_LANGUAGE:-SuperH4:LE:32:katana}
 binary=$root/game/extracted/fs/1ST_READ.BIN
 translate=${DREAM_TRANSLATE:-$root/dream-recomp/build/translator/dream-translate}
-sdk_include=${SDK_INCLUDE:-$root/sdk/r2.00j/is3/0x429C5D0/Group2}
+sdk_header=${SDK_HEADER:-$root/game/sdk.h}
 project=$root/ghidra/project
 out=$root/ghidra/out
 
@@ -103,7 +106,8 @@ with open(sys.argv[2], "w") as o:
   -postScript SeedFromPointers.java \
   -postScript ApplySymbols.java "$root/game/symbols.tsv" "labels:$root/game/globals.tsv" \
   -postScript DropDataFunctions.java 0x8C0CA2F4 \
-  -postScript ApplySdkHeaders.java "$sdk_include" shinobi.h,kamui2.h,Ninja.h,sg_sd.h -D_MACHINE \
+  -postScript ApplySdkHeaders.java "$sdk_header" \
+  -postScript ApplyGameTypes.java "$root/game/types.h" "$root/game/globals.tsv" \
   -postScript ApplyPrototypes.java "$root/tools/ghidra/prototypes.txt" \
   -postScript ApplyRegisterPrototypes.java \
   -postScript StackStructParams.java \
@@ -119,6 +123,7 @@ with open(sys.argv[2], "w") as o:
   -postScript TypeFunctionPointers.java \
   -postScript ContextParams.java \
   -postScript MarkConstantPools.java \
+  -postScript TypeIndexedPools.java \
   -postScript OverrideIndirectCalls.java variadic \
   -postScript KeptRegisters.java \
   -postScript ExportFunctions.java "$out/functions.json" \

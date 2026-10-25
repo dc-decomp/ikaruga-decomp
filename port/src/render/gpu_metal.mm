@@ -170,7 +170,17 @@ struct Gpu::Impl {
     id<MTLBuffer> heads = nil, nodes = nil, counters = nil, slices = nil;
     uint32_t node_capacity = 0;
     std::vector<Band> bands;  // the last render's
-    id<MTLCommandBuffer> last = nil;  // the last render's, which the CPU waits for
+    id<MTLCommandBuffer> last = nil;  // the last render's
+    // What the last render needs to be drawn again when its translucent fragments overflow the pool.
+    // The GPU draws a render while the CPU runs the next frame, and the next render checks it first.
+    struct Pending {
+        bool open = false;
+        int attempts = 0;
+        uint32_t target = 0;
+        MTLClearColor background{};
+        float background_depth = 0, z_scale = 1;
+        FogUniforms fog{};
+    } pending;
     unsigned scale = 1;
     uint32_t width = 640, height = 480;
     std::vector<Vertex> triangles;
@@ -181,6 +191,37 @@ struct Gpu::Impl {
         if (last)
             [last waitUntilCompleted];
     }
+
+    // The last render complete. A band that overflowed the pool dropped fragments, as an explosion's
+    // first frame can need 40 times the fragments of the render before. The render is then drawn again
+    // with its bands planned from what each slice needed, up to three times.
+    void finish() {
+        wait();
+        while (pending.open) {
+            bool overflowed = false;
+            const auto* counts = static_cast<const uint32_t*>(counters.contents);
+            for (size_t b = 0; b < bands.size(); ++b)
+                if (counts[b] > node_capacity) {
+                    overflowed = true;
+                    if (std::getenv("IKARUGA_RENDER_DEBUG"))
+                        std::fprintf(stderr,
+                                     "render: rows %u to %u needed %u translucent fragments, and %u fit; the "
+                                     "render before had %llu there\n",
+                                     bands[b].y0, bands[b].y1 - 1, counts[b], node_capacity,
+                                     static_cast<unsigned long long>(bands[b].estimate));
+                }
+            if (!overflowed || pending.attempts == 3) {
+                pending.open = false;
+                break;
+            }
+            ++pending.attempts;
+            encode();
+            wait();
+        }
+    }
+
+    // The pending render's draws, into a command buffer that the GPU runs while the CPU goes on.
+    void encode();
 
     id<MTLRenderPipelineState> make(NSString* vertex, NSString* fragment, MTLPixelFormat colour, bool depth_attachment,
                                     void (^configure)(MTLRenderPipelineColorAttachmentDescriptor*)) {
@@ -326,7 +367,7 @@ struct Gpu::Impl {
     }
 
     bool download(id<MTLTexture> t, uint32_t level, std::vector<uint32_t>& pixels, uint32_t& w, uint32_t& h) {
-        wait();
+        finish();
         w = std::max<uint32_t>(1, static_cast<uint32_t>(t.width) >> level);
         h = std::max<uint32_t>(1, static_cast<uint32_t>(t.height) >> level);
         pixels.resize(static_cast<size_t>(w) * h);
@@ -334,6 +375,97 @@ struct Gpu::Impl {
         return true;
     }
 };
+
+void Gpu::Impl::encode() {
+    Impl& m = *this;
+    const Pending& pending = m.pending;
+    const auto* slices = static_cast<const uint32_t*>(m.slices.contents);
+    const uint32_t slice_count = m.height / kSliceRows;
+    // Half the pool for each band, so that a band holds twice what the last render had there.
+    std::vector<Band> bands = plan_bands(slices, slice_count, m.node_capacity / 2);
+    while (bands.size() > kMaxBands) {
+        m.lists(m.node_capacity * 2);
+        bands = plan_bands(slices, slice_count, m.node_capacity / 2);
+    }
+    if (bands.size() != m.bands.size() && std::getenv("IKARUGA_RENDER_DEBUG"))
+        std::fprintf(stderr, "render: %zu bands\n", bands.size());
+    m.bands = bands;
+
+    id<MTLCommandBuffer> cmd = [m.queue commandBuffer];
+    // Every pixel's list starts empty, and so does each band's count.
+    id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
+    [blit fillBuffer:m.heads range:NSMakeRange(0, m.heads.length) value:0xFF];
+    [blit fillBuffer:m.counters range:NSMakeRange(0, m.counters.length) value:0];
+    [blit fillBuffer:m.slices range:NSMakeRange(0, m.slices.length) value:0];
+    [blit endEncoding];
+
+    id<MTLTexture> colour_target = m.target(pending.target);
+    const Screen screen{{2.0f / 640.0f, 2.0f / 480.0f, 1.0f / pending.z_scale, 0.0f}};
+    const Lists lists{m.width, m.node_capacity};
+    for (size_t b = 0; b < m.bands.size(); ++b) {
+        const Band& band = m.bands[b];
+        // The band's geometry: each translucent fragment joins its pixel's list. Depth starts again in
+        // each band, which reads only its own rows.
+        MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
+        pass.colorAttachments[0].texture = colour_target;
+        pass.colorAttachments[0].loadAction = b == 0 ? MTLLoadActionClear : MTLLoadActionLoad;
+        pass.colorAttachments[0].clearColor = pending.background;
+        pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+        pass.depthAttachment.texture = m.depth;
+        pass.depthAttachment.loadAction = MTLLoadActionClear;
+        pass.depthAttachment.clearDepth = std::min(pending.background_depth / pending.z_scale, 1.0f);
+        pass.depthAttachment.storeAction = MTLStoreActionDontCare;
+        id<MTLRenderCommandEncoder> enc = [cmd renderCommandEncoderWithDescriptor:pass];
+        if (!m.draws.empty()) {
+            [enc setVertexBuffer:m.vertices offset:0 atIndex:0];
+            [enc setVertexBytes:&screen length:sizeof screen atIndex:1];
+            [enc setFragmentBytes:&pending.fog length:sizeof pending.fog atIndex:1];
+            [enc setFragmentBytes:&lists length:sizeof lists atIndex:2];
+            [enc setFragmentBuffer:m.heads offset:0 atIndex:3];
+            [enc setFragmentBuffer:m.nodes offset:0 atIndex:4];
+            [enc setFragmentBuffer:m.counters offset:b * 4 atIndex:5];
+            [enc setFragmentBuffer:m.slices offset:0 atIndex:6];
+        }
+        id<MTLRenderPipelineState> bound = nil;
+        for (const Batch& d : m.draws) {
+            const NSUInteger y0 = std::max<NSUInteger>(d.scissor.y, band.y0);
+            const NSUInteger y1 = std::min<NSUInteger>(d.scissor.y + d.scissor.height, band.y1);
+            if (y1 <= y0)
+                continue;
+            id<MTLRenderPipelineState> p = d.translucent ? m.translucent : m.pipeline(d.pipeline);
+            if (!p)
+                continue;
+            if (p != bound) {
+                [enc setRenderPipelineState:p];
+                bound = p;
+            }
+            [enc setDepthStencilState:m.depth_state(d.depth)];
+            [enc setFragmentTexture:d.texture atIndex:0];
+            [enc setFragmentSamplerState:m.sampler(d.sampler) atIndex:0];
+            [enc setFragmentBytes:&d.uniforms length:sizeof d.uniforms atIndex:0];
+            [enc setScissorRect:{d.scissor.x, y0, d.scissor.width, y1 - y0}];
+            [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:d.first vertexCount:d.count];
+        }
+        [enc endEncoding];
+
+        // The band's translucent fragments, sorted and blended over its opaque picture.
+        MTLRenderPassDescriptor* sort = [MTLRenderPassDescriptor renderPassDescriptor];
+        sort.colorAttachments[0].texture = colour_target;
+        sort.colorAttachments[0].loadAction = MTLLoadActionLoad;
+        sort.colorAttachments[0].storeAction = MTLStoreActionStore;
+        enc = [cmd renderCommandEncoderWithDescriptor:sort];
+        [enc setRenderPipelineState:m.sort];
+        [enc setFragmentBytes:&lists length:sizeof lists atIndex:2];
+        [enc setFragmentBuffer:m.heads offset:0 atIndex:3];
+        [enc setFragmentBuffer:m.nodes offset:0 atIndex:4];
+        [enc setFragmentBuffer:m.slices offset:0 atIndex:5];
+        [enc setScissorRect:{0, band.y0, m.width, band.y1 - band.y0}];
+        [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        [enc endEncoding];
+    }
+    [cmd commit];
+    m.last = cmd;
+}
 
 Gpu::Gpu() : impl_(std::make_unique<Impl>()) {}
 
@@ -432,7 +564,7 @@ bool Gpu::create(SDL_Window* window, unsigned scale, std::string& error) {
 const char* Gpu::driver() const { return impl_->device ? impl_->device.name.UTF8String : "none"; }
 
 void Gpu::last_render(double& gpu_ms, uint32_t& fragments) {
-    impl_->wait();
+    impl_->finish();
     gpu_ms = impl_->last ? (impl_->last.GPUEndTime - impl_->last.GPUStartTime) * 1000.0 : 0.0;
     fragments = 0;
     if (impl_->counters)
@@ -446,8 +578,8 @@ void Gpu::render(const Frame& frame, const Hardware& hw) {
     Impl& m = *impl_;
     if (!m.device)
         return;
-    // The CPU writes textures and the vertex buffer the last render may still read.
-    m.wait();
+    // The CPU writes textures and the vertex buffer that the last render reads.
+    m.finish();
     const uint64_t render = renders + 1;
 
     const float background_depth = frame.background_depth;
@@ -526,121 +658,22 @@ void Gpu::render(const Frame& frame, const Hardware& hw) {
     if (vertex_bytes)
         std::memcpy(m.vertices.contents, m.triangles.data(), vertex_bytes);
 
-    // A band that overflows the pool drops fragments. The render then waits for the GPU, plans its
-    // bands again from what each slice needed, and draws again: explosions appear at once, with up to
-    // 40 times the fragments of the render before.
-    const auto* slices = static_cast<const uint32_t*>(m.slices.contents);
-    const uint32_t slice_count = m.height / kSliceRows;
-    for (int attempt = 0;; ++attempt) {
-        // Half the pool for each band, so that a band holds twice what the last render had there.
-        std::vector<Band> bands = plan_bands(slices, slice_count, m.node_capacity / 2);
-        while (bands.size() > kMaxBands) {
-            m.lists(m.node_capacity * 2);
-            bands = plan_bands(slices, slice_count, m.node_capacity / 2);
-        }
-        if (bands.size() != m.bands.size() && std::getenv("IKARUGA_RENDER_DEBUG"))
-            std::fprintf(stderr, "render: %zu bands\n", bands.size());
-        m.bands = bands;
-
-        id<MTLCommandBuffer> cmd = [m.queue commandBuffer];
-        // Every pixel's list starts empty, and so does each band's count.
-        id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
-        [blit fillBuffer:m.heads range:NSMakeRange(0, m.heads.length) value:0xFF];
-        [blit fillBuffer:m.counters range:NSMakeRange(0, m.counters.length) value:0];
-        [blit fillBuffer:m.slices range:NSMakeRange(0, m.slices.length) value:0];
-        [blit endEncoding];
-
-        id<MTLTexture> colour_target = m.target(frame.target);
-        const Screen screen{{2.0f / 640.0f, 2.0f / 480.0f, 1.0f / z_scale, 0.0f}};
-        FogUniforms fog{};
-        colour_of(frame.fog_table_colour, fog.table_colour);
-        colour_of(frame.fog_vertex_colour, fog.vertex_colour);
-        fog.params[0] = frame.fog_density;
-        fog.params[1] = z_scale;
-        for (int i = 0; i < 128; ++i) {
-            fog.table[i / 2][(i & 1) * 2] = static_cast<float>(frame.fog_table[i][0]) / 255.0f;
-            fog.table[i / 2][(i & 1) * 2 + 1] = static_cast<float>(frame.fog_table[i][1]) / 255.0f;
-        }
-        const Lists lists{m.width, m.node_capacity};
-        for (size_t b = 0; b < m.bands.size(); ++b) {
-            const Band& band = m.bands[b];
-            // The band's geometry: each translucent fragment joins its pixel's list. Depth starts again in
-            // each band, which reads only its own rows.
-            MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
-            pass.colorAttachments[0].texture = colour_target;
-            pass.colorAttachments[0].loadAction = b == 0 ? MTLLoadActionClear : MTLLoadActionLoad;
-            pass.colorAttachments[0].clearColor = background;
-            pass.colorAttachments[0].storeAction = MTLStoreActionStore;
-            pass.depthAttachment.texture = m.depth;
-            pass.depthAttachment.loadAction = MTLLoadActionClear;
-            pass.depthAttachment.clearDepth = std::min(background_depth / z_scale, 1.0f);
-            pass.depthAttachment.storeAction = MTLStoreActionDontCare;
-            id<MTLRenderCommandEncoder> enc = [cmd renderCommandEncoderWithDescriptor:pass];
-            if (!m.draws.empty()) {
-                [enc setVertexBuffer:m.vertices offset:0 atIndex:0];
-                [enc setVertexBytes:&screen length:sizeof screen atIndex:1];
-                [enc setFragmentBytes:&fog length:sizeof fog atIndex:1];
-                [enc setFragmentBytes:&lists length:sizeof lists atIndex:2];
-                [enc setFragmentBuffer:m.heads offset:0 atIndex:3];
-                [enc setFragmentBuffer:m.nodes offset:0 atIndex:4];
-                [enc setFragmentBuffer:m.counters offset:b * 4 atIndex:5];
-                [enc setFragmentBuffer:m.slices offset:0 atIndex:6];
-            }
-            id<MTLRenderPipelineState> bound = nil;
-            for (const Batch& d : m.draws) {
-                const NSUInteger y0 = std::max<NSUInteger>(d.scissor.y, band.y0);
-                const NSUInteger y1 = std::min<NSUInteger>(d.scissor.y + d.scissor.height, band.y1);
-                if (y1 <= y0)
-                    continue;
-                id<MTLRenderPipelineState> p = d.translucent ? m.translucent : m.pipeline(d.pipeline);
-                if (!p)
-                    continue;
-                if (p != bound) {
-                    [enc setRenderPipelineState:p];
-                    bound = p;
-                }
-                [enc setDepthStencilState:m.depth_state(d.depth)];
-                [enc setFragmentTexture:d.texture atIndex:0];
-                [enc setFragmentSamplerState:m.sampler(d.sampler) atIndex:0];
-                [enc setFragmentBytes:&d.uniforms length:sizeof d.uniforms atIndex:0];
-                [enc setScissorRect:{d.scissor.x, y0, d.scissor.width, y1 - y0}];
-                [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:d.first vertexCount:d.count];
-            }
-            [enc endEncoding];
-
-            // The band's translucent fragments, sorted and blended over its opaque picture.
-            MTLRenderPassDescriptor* sort = [MTLRenderPassDescriptor renderPassDescriptor];
-            sort.colorAttachments[0].texture = colour_target;
-            sort.colorAttachments[0].loadAction = MTLLoadActionLoad;
-            sort.colorAttachments[0].storeAction = MTLStoreActionStore;
-            enc = [cmd renderCommandEncoderWithDescriptor:sort];
-            [enc setRenderPipelineState:m.sort];
-            [enc setFragmentBytes:&lists length:sizeof lists atIndex:2];
-            [enc setFragmentBuffer:m.heads offset:0 atIndex:3];
-            [enc setFragmentBuffer:m.nodes offset:0 atIndex:4];
-            [enc setFragmentBuffer:m.slices offset:0 atIndex:5];
-            [enc setScissorRect:{0, band.y0, m.width, band.y1 - band.y0}];
-            [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
-            [enc endEncoding];
-        }
-        [cmd commit];
-        m.last = cmd;
-        [cmd waitUntilCompleted];
-        bool overflowed = false;
-        const auto* counts = static_cast<const uint32_t*>(m.counters.contents);
-        for (size_t b = 0; b < m.bands.size(); ++b)
-            if (counts[b] > m.node_capacity) {
-                overflowed = true;
-                if (std::getenv("IKARUGA_RENDER_DEBUG"))
-                    std::fprintf(stderr,
-                                 "render: rows %u to %u needed %u translucent fragments, and %u fit; the render "
-                                 "before had %llu there\n",
-                                 m.bands[b].y0, m.bands[b].y1 - 1, counts[b], m.node_capacity,
-                                 static_cast<unsigned long long>(m.bands[b].estimate));
-            }
-        if (!overflowed || attempt == 3)
-            break;
+    Impl::Pending& p = m.pending;
+    p = {};
+    p.open = true;
+    p.target = frame.target;
+    p.background = background;
+    p.background_depth = background_depth;
+    p.z_scale = z_scale;
+    colour_of(frame.fog_table_colour, p.fog.table_colour);
+    colour_of(frame.fog_vertex_colour, p.fog.vertex_colour);
+    p.fog.params[0] = frame.fog_density;
+    p.fog.params[1] = z_scale;
+    for (int i = 0; i < 128; ++i) {
+        p.fog.table[i / 2][(i & 1) * 2] = static_cast<float>(frame.fog_table[i][0]) / 255.0f;
+        p.fog.table[i / 2][(i & 1) * 2 + 1] = static_cast<float>(frame.fog_table[i][1]) / 255.0f;
     }
+    m.encode();
     ++renders;
     if (renders % 600 == 0) {
         // Textures no render has used for a minute.
@@ -658,6 +691,9 @@ void Gpu::present(const Hardware& hw) {
     if (pw <= 0 || ph <= 0)
         return;
     m.layer.drawableSize = CGSizeMake(pw, ph);
+    // The display shows the render that the GPU may still draw only once it is checked.
+    if (m.pending.open && m.pending.target == (hw.registers[kFbRSof1] & 0xFFFFFF))
+        m.finish();
     id<CAMetalDrawable> drawable = [m.layer nextDrawable];
     if (!drawable)
         return;

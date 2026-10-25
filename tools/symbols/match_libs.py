@@ -272,27 +272,29 @@ FUNCTIONS_HEADER = ("# address\tname\tsource  Function names for Ghidra and drea
                     "# starts with sdk- are rewritten by tools/symbols/match_libs.py. Add your own with\n"
                     "# the source user.\n")
 GLOBALS_HEADER = ("# address\tname\tsource  Data names, for Ghidra only. Rows whose source starts with\n"
-                  "# sdk- are rewritten by tools/symbols/match_libs.py. Add your own with the source user.\n")
+                  "# sdk- are rewritten by tools/symbols/match_libs.py. Add your own with the source user. A fourth\n"
+                  "# column types the data: a C type from game/types.h or the SDK's headers.\n")
 
 
 def write_merged(path: Path, found: dict[int, tuple[str, str]], header: str) -> int:
-    """Write found to path. Rows not from an SDK stay, and win where an address has both."""
-    rows = dict(found)
+    """Write found to path. Rows not from an SDK stay, with their further columns, and win where an
+    address has both."""
+    rows = {a: (name, how, []) for a, (name, how) in found.items()}
     kept = 0
     if path.exists():
         for line in path.read_text().splitlines():
             if not line.strip() or line.startswith("#"):
                 continue
-            addr, name, how = (line.split("\t") + [""])[:3]
+            addr, name, how, *rest = line.split("\t") + [""] * (3 - len(line.split("\t")))
             if how.startswith("sdk-"):
                 continue
-            rows[(int(addr, 16) & 0x1FFFFFFF) | 0x0C000000] = (name, how)
+            rows[(int(addr, 16) & 0x1FFFFFFF) | 0x0C000000] = (name, how, rest)
             kept += 1
     with open(path, "w") as f:
         f.write(header)
         for addr in sorted(rows):
-            name, how = rows[addr]
-            f.write(f"0x{addr:08x}\t{name}\t{how}\n")
+            name, how, rest = rows[addr]
+            f.write("\t".join([f"0x{addr:08x}", name, how, *rest]) + "\n")
     return kept
 
 

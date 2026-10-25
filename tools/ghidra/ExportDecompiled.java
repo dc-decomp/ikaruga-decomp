@@ -306,7 +306,7 @@ public class ExportDecompiled extends GhidraScript {
             final boolean converts = op != null && isFloatConversion(op)
                 && castsToFloat(t, i, close) == (op.getOpcode() != PcodeOp.FLOAT_TRUNC);
             if (!converts && ((op != null && isPun(op)) || isPartial(t, s, e) || isFloatConstant(t, i, close, s, e)
-                    || isFloatOfBits(t, i, close, s, e))) {
+                    || isFloatOfBits(t, i, close, s, e) || (op == null && isBitsOfFloat(t, i, close, s, e)))) {
                 // The argument pass above may have wrapped the cast already: keep what it added.
                 text[i] = text[i].substring(0, text[i].length() - 1) + "pun<";
                 text[close] = text[close].replaceFirst("^\\)", ">(");
@@ -658,6 +658,52 @@ public class ExportDecompiled extends GhidraScript {
                 }
             }
             frontier = next;
+        }
+        return false;
+    }
+
+    private static final Set<Integer> FLOAT_ARITHMETIC = Set.of(PcodeOp.FLOAT_ADD, PcodeOp.FLOAT_SUB,
+        PcodeOp.FLOAT_MULT, PcodeOp.FLOAT_DIV, PcodeOp.FLOAT_NEG, PcodeOp.FLOAT_ABS, PcodeOp.FLOAT_SQRT);
+
+    // A cast to an integer type with no conversion behind it, of a value that float arithmetic
+    // makes: the float goes into a word that Ghidra typed as an integer, as an fmov.s stores it.
+    // FUN_8c0bc01c's param_1[6] = (int)(a * b + c) truncated 15.0125 to 15.
+    private static boolean isBitsOfFloat(List<ClangToken> t, int open, int close, int s, int e) {
+        if (castsToFloat(t, open, close) || castsToPointer(t, open, close)) {
+            return false;
+        }
+        Set<PcodeOp> ops = new HashSet<>();
+        for (int k = s; k < e; k++) {
+            if (t.get(k).getPcodeOp() != null) {
+                ops.add(t.get(k).getPcodeOp());
+            }
+        }
+        // The operand's value: the op whose result no other op of the operand reads. An ftrc after it
+        // is a conversion that the search for the cast's op can miss (FUN_8c093e04, FUN_8c0c5494).
+        for (PcodeOp op : ops) {
+            if (FLOAT_ARITHMETIC.contains(op.getOpcode()) && !feeds(op, ops)) {
+                return !truncated(op.getOutput(), 3);
+            }
+        }
+        return false;
+    }
+
+    // Whether a FLOAT_TRUNC reads the value, directly or through copies, casts and phis.
+    private static boolean truncated(Varnode v, int depth) {
+        if (v == null || depth == 0) {
+            return false;
+        }
+        Iterator<PcodeOp> it = v.getDescendants();
+        while (it.hasNext()) {
+            PcodeOp d = it.next();
+            int code = d.getOpcode();
+            if (code >= PcodeOp.FLOAT_TRUNC && code <= PcodeOp.FLOAT_ROUND) {
+                return true;
+            }
+            if ((code == PcodeOp.COPY || code == PcodeOp.CAST || code == PcodeOp.MULTIEQUAL
+                    || code == PcodeOp.INDIRECT) && truncated(d.getOutput(), depth - 1)) {
+                return true;
+            }
         }
         return false;
     }

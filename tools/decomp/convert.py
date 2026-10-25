@@ -80,6 +80,10 @@ class Types:
             if t["kind"] == "funcdef":
                 self.funcdefs.add(t["name"])
                 continue
+            # A typedef of itself says nothing: game/sdk.h declares Ghidra's uchar as unsigned char,
+            # and Ghidra keeps it as uchar.
+            if t["kind"] == "typedef" and t["base"] == t["name"]:
+                continue
             # First definition of a name wins; later duplicates come from other headers.
             self.kind.setdefault(t["name"], t)
 
@@ -726,19 +730,26 @@ class Converter:
         # _X is X read at a wider size than it is declared (Ghidra's naming); both share storage.
         wide = {m for m in re.findall(r"\b_([A-Za-z]\w*)\b", text)
                 if m in locals_by_name and f"_{m}" not in locals_by_name}
+        # A pair store into _X writes X and the word after it.
+        wide8 = {m for m in wide if re.search(r"\b_" + m + r"\s*=\s*(?:CONCAT44|\((?:u?longlong|undefined8)\))", text)}
         frame_size = 0
         decl_lines: list[str] = []
         rest_start = 1
         for i in range(1, len(body)):
             line = body[i]
             m = re.match(r"^  (?!return\b)([A-Za-z_][\w ]*?)\s*(\**)\s*([A-Za-z_]\w*)\s*((?:\[\d+\])*)\s*;$", line)
-            if not m:
+            # A pointer to an array: char (*pacVar4) [32];
+            pa = re.match(r"^  ([A-Za-z_][\w ]*?)\s*\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*((?:\[\d+\])+)\s*;$", line)
+            if not m and not pa:
                 rest_start = i
                 break
-            name = m.group(3)
+            name = m.group(3) if m else pa.group(2)
             loc = locals_by_name.get(name)
             # The declaration Ghidra printed is the type the body uses; the sidecar adds the storage.
-            gtype = (m.group(1).strip() + (" " + m.group(2) if m.group(2) else "") + m.group(4)).strip()
+            if m:
+                gtype = (m.group(1).strip() + (" " + m.group(2) if m.group(2) else "") + m.group(4)).strip()
+            else:
+                gtype = f"{pa.group(1).strip()}{pa.group(3)} *"
             f.printed[name] = gtype
             t, suffix = self.ty.cpp(gtype)
             base_kind = self.ty.kind.get(self.ty.parse(gtype)[0], {})
@@ -756,7 +767,8 @@ class Converter:
                 else:
                     decl_lines.append(f"  {t} &{name} = _frame.at<{t}>({stack});")
                 if name in wide:
-                    decl_lines.append(f"  uint32_t &_{name} = _frame.at<uint32_t>({stack});")
+                    wt = "undefined8" if name in wide8 else "uint32_t"
+                    decl_lines.append(f"  {wt} &_{name} = _frame.at<{wt}>({stack});")
             elif re.match(r"^(in_|unaff_|extraout_)", name):
                 flag = re.match(r"^(?:in|extraout)_(T|S|IMASK|Q|M|FD|BL|RB|MD)(?:_\d+)?$", name)
                 if suffix:
@@ -859,6 +871,7 @@ class Converter:
         sig = f.prototype()
         header = f"// {f.name} @ 0x{f.addr}"
         overrides, undefs = self.global_overrides(f)
+        rest = self.byte_compares(rest, overrides + extra_defs)
         return "\n".join([header] + overrides + extra_defs + [sig, "{"] + decl_lines + [rest]
                          + undefs + extra_undefs) + "\n"
 
@@ -937,6 +950,32 @@ class Converter:
                 undefs.append(f"#undef {ident}")
                 undefs.append(self.global_def(ident, *self.globals[n]))
         return defs, undefs
+
+    def byte_compares(self, text: str, defs: list[str]) -> str:
+        """Ghidra compares an undefined byte global as a byte, and prints 0xff as -1 or '\\xff'.
+        In C++ the byte is uint8_t and such a value never matches, so it becomes the byte value."""
+        types = {cpp_ident(n): t for n, (t, _) in self.globals.items()}
+        for d in defs:
+            m = re.match(r"#define (\w+) \((?:guest::host<|gref<)(\w+)>", d)
+            if m:
+                types[m.group(1)] = m.group(2)
+        for n, t in types.items():
+            if t not in ("undefined", "undefined1") or n not in text:
+                continue
+            operand = rf"(\(gaddr\({n}\)\)\[[^\[\]]*\]|\b{n}\b(?!\s*\[))"
+
+            def byte(m: re.Match) -> str:
+                v = m.group(3)
+                if v == "(char)":
+                    v = "(uchar)"
+                elif v.startswith("'"):
+                    v = "0x" + v[3:5]
+                elif int(v[1:], 0) <= 0x80:
+                    v = f"0x{256 - int(v[1:], 0):02x}"
+                return f"{m.group(1)} {m.group(2)} {v}"
+            text = re.sub(operand + r"\s*([!=]=)\s*(-(?:0x[0-9a-f]+|\d+)\b|'\\x[89a-f][0-9a-f]'|\(char\))",
+                          byte, text)
+        return text
 
     def trim_extra_args(self, text: str) -> str:
         """Drop arguments beyond a known callee's parameters. The caller set a register the callee
@@ -1055,6 +1094,19 @@ class Converter:
         postfix = r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*|\[[^\[\]]*\]|->[A-Za-z_]\w*)*"
         text = re.sub(r"(?<![&\w)\]])&(" + postfix + ")", r"gaddr(\1)", text)
         text = re.sub(r"(\))&(" + postfix + ")", r"\1gaddr(\2)", text)
+        # The same for a member of a parenthesized operand: (int)&(points->position).y.
+        member = r"\((?:[^()]|\([^()]*\))*\)(?:\.[A-Za-z_]\w*|\[[^\[\]]*\]|->[A-Za-z_]\w*)+"
+        text = re.sub(r"(?<![&\w)\]])&(" + member + ")", r"gaddr(\1)", text)
+        text = re.sub(r"(\))&(" + member + ")", r"\1gaddr(\2)", text)
+        # A global array cast to an integer is its guest address, and so is a row of one with more
+        # dimensions. The host array would decay to a host pointer: fadeDraw passes (int)fadeQuad to
+        # the screen-mode copy, and scriptGroupRemove reads (int)scriptGroups[group].
+        for g in f.side["globals"]:
+            dims = self.ty.cpp(self.global_type(g))[1].count("[") if g["name"] and "address" in g else 0
+            if dims:
+                text = re.sub(r"\(((?:u?int|undefined4|dword))\)(" + re.escape(cpp_ident(g["name"]))
+                              + r"\b(?:\[[^\[\]]*\]){0," + str(dims - 1) + r"})(?!\s*(?:\[|\.|->|\())",
+                              r"(\1)gaddr(\2)", text)
         # Sub-pieces: x._4_4_ is the 4 bytes of x at offset 4.
         fpu = {l["name"] for l in f.side["locals"]
                if l.get("register", "")[:2] in ("dr", "xd", "fr")}

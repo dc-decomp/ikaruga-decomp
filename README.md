@@ -44,11 +44,13 @@ first. [docs/progress.md](docs/progress.md) records what was patched, and why.
    After a change to `tools/ghidra/ExportDecompiled.java` only, `tools/ghidra/analyze.sh --export`
    writes the C again from the analyzed project in about 20 seconds. To check such a change on a
    few functions first, set `EXPORT_ONLY=8c0a9664,...` and run the script into another directory,
-   because `--export` deletes `ghidra/out/c` first.
+   because `--export` deletes `ghidra/out/c` first. The saved project does not give quite the C of
+   a full run (some functions decompile differently), so use `--export` to look at a change and a
+   full run for the C that you convert.
 
 The first run also builds and installs the patched language. To rebuild it by hand, run
 `tools/ghidra/build_language.py`. The names of the SDK functions that the game links are committed
-in `game/symbols.tsv` and `game/globals.tsv`.
+in `game/symbols.tsv` and `game/globals.tsv`, and their prototypes and types in `game/sdk.h`.
 
 ## Reference build
 
@@ -143,6 +145,10 @@ works (`0x0c013958` or `0x8c013958`).
 
 2. Run `tools/ghidra/analyze.sh`. The new name shows in the function's file and at each call.
 3. Rebuild the reference build to use the name there too.
+4. Before you commit, compare a whole game of the native build before and after the change, with
+   `IKARUGA_STREAMS` as the native build's section shows. A name or a type changes Ghidra's whole
+   analysis. Its guesses of types elsewhere can shift, and with them the C++ of functions far from
+   the name.
 
 The SDK functions' rows have a source that starts with `sdk-`. Where a `user` row and an SDK row
 have the same address, the `user` row wins.
@@ -251,6 +257,23 @@ first two milestones, in two minutes. `--pictures DIR` also takes screenshots a 
 some milestones and compares them with the set that `--keep` kept. The pictures come from the
 game, so keep `DIR` outside the repository.
 
+To compare two builds, play a whole autoplay game with each and compare the lines that
+`IKARUGA_STREAMS` writes. Two builds that play the same game give the same lines: the same
+display lists, registers, video memory and sound. The first line that differs shows when the two
+games part:
+
+```sh
+env IKARUGA_AUTOPLAY=1 \
+  IKARUGA_STREAMS=before.txt \
+  build-before/ikaruga \
+  --unthrottled \
+  --frames 122000
+```
+
+Do this for each change of names or types, and for each change of the converter or the scripts.
+A naming batch once changed how a float was stored in three functions, and the game looked and
+sounded different from stage 3 on.
+
 To check a change to the renderer in seconds, run `tools/port/render_check.py`. It draws a set
 of display lists with `render-view` and compares each picture with the one that `--keep` kept.
 It prints the mean difference and the number of pixels that differ by more than 16 in a channel.
@@ -274,7 +297,7 @@ These variables show what a run does:
 | `IKARUGA_DUMP_TA=950,FILE` | Writes the first display list from that frame on, with video memory and the PVR registers, as the reference build's `--dump-ta` does. `render-view FILE OUT.png` draws it, and `dream_render_view FILE --stats` or `--polygons` lists it. |
 | `IKARUGA_CALLED=FILE` | Writes each decompiled function that the run entered, with the frame of its first call and its number of calls. Functions on the interpreter are not in it. |
 | `IKARUGA_HW_USERS=FILE` | Writes the registers that each decompiled function read and wrote, and where its store-queue flushes went. Interpreted code counts for the C++ function that called it. |
-| `IKARUGA_STREAMS=FILE` | Writes a line for each render: its number, the frame, the display list's words, and hashes of the display list, of the registers the renderer reads and of video memory. Two builds that play the same game give the same lines. A change that moves the timing changes them. |
+| `IKARUGA_STREAMS=FILE` | Writes a line for each render: its number, the frame, the display list's words, and hashes of the display list, of the registers the renderer reads, of video memory, of the decoded display list and of the sound so far. Two builds that play the same game give the same lines. A change that moves the timing changes them. The run's summary ends with the hash of the whole sound. |
 | `IKARUGA_SH4_PCS=FILE` | Writes, at the end, the interpreted instructions run at each address of the executable: with the symbols, the time each routine takes itself |
 | `IKARUGA_SH4_PROFILE=1` | Prints, at the end, the interpreted instructions per function that the C++ called, nested calls included |
 | `IKARUGA_INTERPRET_ALL=1` | Runs all game code on the SH-4 interpreter, except the functions that the port replaces (`port/replaced.txt`). The boot is slow. |
@@ -289,11 +312,14 @@ How the runtime works is in [docs/progress.md](docs/progress.md), "Native port".
 | `tools/symbols/` | The tools for the symbol tables |
 | `tools/reference/` | The regression gate for the reference build |
 | `tools/decomp/` | The converter from Ghidra's C to C++ for the native build |
+| `tools/game/` | `stage.py`, which prints a chapter's stage program or a stage script with names |
 | `port/` | The native build's runtime: guest memory, the machine built from dream-recomp's runtime, the boot ROM's services, the SH-4 interpreter for Ninja, the differential tests |
 | `decomp/` | The converted game code. Generated, ignored here, a local repository of its own. |
 | `game/` | The title config and the symbol tables. `game/extracted/` holds the disc files. |
 | `docs/progress.md` | Status, decisions, measurements and the plan |
 | `docs/native-platform.md` | What the game needs from the platform, and the steps to a native one |
+| `docs/game.md` | How the game runs: its frame, its scenes, its task system and its named data |
+| `docs/todo.md` | Work that is understood and put off: the renderer's CPU work, the sound's speed |
 | `CMakeLists.txt` | Builds dream-recomp and the recompiled title, for the reference build |
 
 ## Rules
@@ -302,4 +328,5 @@ How the runtime works is in [docs/progress.md](docs/progress.md), "Native port".
   `*.chd` are ignored.
   Read `git status` before every commit.
 - The decompiled code comes from Sega's copyrighted program. Keep it out of any public remote.
-- Never copy Sega's code into this repository, including into comments.
+- `game/sdk.h` holds only the types and prototypes of the SDK functions that the analysis uses,
+  without macros or comments.
