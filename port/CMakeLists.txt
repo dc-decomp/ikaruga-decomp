@@ -59,6 +59,7 @@ add_library(ikaruga_render STATIC
   src/render/menu.cpp
   src/render/settings.cpp
   src/render/overlay.mm
+  src/render/font.cpp
   src/render/activity.mm
   src/render/audio.cpp
   "${SHADER_BUILD_DIR}/shaders.cpp")
@@ -111,8 +112,8 @@ target_compile_options(ikaruga PRIVATE -g -Wall -Wextra -Wno-unused-parameter -f
                        -ffp-contract=off)
 
 # Ikaruga.app: the same program in an app bundle, whose Info.plist declares it a game, so that macOS
-# turns on Game Mode while its window is in fullscreen. It reads the disc relative to the working
-# directory too, so run Ikaruga.app/Contents/MacOS/ikaruga from the repository's root.
+# turns on Game Mode while its window is in fullscreen. Started from Finder, without options, it
+# plays in a window and asks for the disc once (README).
 set(IKARUGA_BUNDLE "${CMAKE_CURRENT_BINARY_DIR}/Ikaruga.app")
 configure_file(Info.plist.in "${CMAKE_CURRENT_BINARY_DIR}/Info.plist" COPYONLY)
 add_custom_command(OUTPUT "${IKARUGA_BUNDLE}/Contents/MacOS/ikaruga"

@@ -33,4 +33,10 @@ bool root(Entry& out);
 // The entries of a directory, without "." and "..".
 std::vector<Entry> list(const Entry& directory);
 
+// The first 16 sectors of the high-density data track: IP.BIN, which the boot ROM loads to
+// 0x8C008000, with the disc's title at 0x80.
+bool read_bootstrap(std::vector<uint8_t>& out);
+// A file of the root directory, named as `Entry::name` names it.
+bool read_file(const std::string& name, std::vector<uint8_t>& out);
+
 }  // namespace disc

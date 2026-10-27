@@ -781,226 +781,234 @@ void Gpu::last_render(double& gpu_ms, uint32_t& fragments) {
 void Gpu::render(const DisplayList& list, const Hardware& hw) { render(translate(list, hw), hw); }
 
 void Gpu::render(const Frame& frame, const Hardware& hw) {
-    Impl& m = *impl_;
-    if (!m.device)
-        return;
-    // The CPU writes textures and the vertex buffer that the last render reads.
-    m.finish();
-    const uint64_t render = renders + 1;
+    // A render's command buffer, encoders and pass descriptors, as in present().
+    @autoreleasepool {
+        Impl& m = *impl_;
+        if (!m.device)
+            return;
+        // The CPU writes textures and the vertex buffer that the last render reads.
+        m.finish();
+        const uint64_t render = renders + 1;
 
-    const float background_depth = frame.background_depth;
-    const uint32_t argb = frame.background;
-    const MTLClearColor background = MTLClearColorMake(((argb >> 16) & 255) / 255.0, ((argb >> 8) & 255) / 255.0,
-                                                       (argb & 255) / 255.0, (argb >> 24) / 255.0);
-    float z_scale = std::max(frame.max_z, background_depth);
-    if (!(z_scale > 0.0f))
-        z_scale = 1.0f;
+        const float background_depth = frame.background_depth;
+        const uint32_t argb = frame.background;
+        const MTLClearColor background = MTLClearColorMake(((argb >> 16) & 255) / 255.0, ((argb >> 8) & 255) / 255.0,
+                                                           (argb & 255) / 255.0, (argb >> 24) / 255.0);
+        float z_scale = std::max(frame.max_z, background_depth);
+        if (!(z_scale > 0.0f))
+            z_scale = 1.0f;
 
-    m.draws.clear();
-    m.triangles.clear();
-    for (List which : {List::Opaque, List::PunchThrough, List::Translucent}) {
-        uint32_t index = 0;  // the draw's place in its list
-        for (const render::Draw& s : frame.draws) {
-            if (s.list != which)
-                continue;
-            const uint32_t order = index++;
-            if (s.depth == DepthTest::Never)
-                continue;
-            Batch d{};
-            d.first = static_cast<uint32_t>(m.triangles.size());
-            for (uint32_t i = 0; i + 2 < s.count; ++i) {
-                Vertex t[3] = {frame.vertices[s.first + i], frame.vertices[s.first + i + 1],
-                               frame.vertices[s.first + i + 2]};
-                // A flat strip takes each triangle's colours from its last vertex.
-                if (!s.gouraud) {
-                    t[0].base = t[1].base = t[2].base;
-                    t[0].offset = t[1].offset = t[2].offset;
-                }
-                m.triangles.insert(m.triangles.end(), t, t + 3);
-            }
-            d.count = static_cast<uint32_t>(m.triangles.size()) - d.first;
-            d.translucent = which == List::Translucent;
-            d.pipeline = static_cast<uint32_t>(s.source) | static_cast<uint32_t>(s.target) << 3;
-            // A destination factor of 1 with a source factor of 0, 1, source alpha or its inverse: the
-            // strip adds a term that does not depend on the pixel. A term of 0 times the source
-            // leaves the pixel as it is.
-            const uint32_t source = d.pipeline & 7, target = d.pipeline >> 3;
-            d.adds = d.translucent && target == 1 && (source == 0 || source == 1 || source == 4 || source == 5);
-            if (d.adds && source == 0)
-                continue;
-            // A translucent polygon tests depth but does not write it, whatever its ISP word says: the
-            // hardware blends each pixel's translucent layers in depth order, so none hides another.
-            const bool write = s.depth_write && !d.translucent;
-            d.depth = static_cast<uint32_t>(s.depth) | write << 3;
-            d.texture = s.textured ? m.texture(s, frame, hw, render, textures_decoded, untextured) : m.white;
-            const uint32_t filter = static_cast<uint32_t>(s.filter);
-            const bool mipmapped = s.textured && s.texture.mipmapped;
-            d.sampler = (filter != 0) | mipmapped << 1 | (filter >= 2) << 2 | s.clamp_u << 3 | s.clamp_v << 4 |
-                        s.flip_u << 5 | s.flip_v << 6;
-            int x0 = frame.clip_x0, y0 = frame.clip_y0, x1 = frame.clip_x1, y1 = frame.clip_y1;
-            if (s.clip == Clip::Inside) {
-                x0 = std::max(x0, static_cast<int>(s.clip_x0));
-                y0 = std::max(y0, static_cast<int>(s.clip_y0));
-                x1 = std::min(x1, static_cast<int>(s.clip_x1));
-                y1 = std::min(y1, static_cast<int>(s.clip_y1));
-            }
-            x0 = std::clamp(x0, 0, 640);
-            x1 = std::clamp(x1, x0, 640);
-            y0 = std::clamp(y0, 0, 480);
-            y1 = std::clamp(y1, y0, 480);
-            const auto sc = static_cast<NSUInteger>(m.scale);
-            d.scissor = {static_cast<NSUInteger>(x0) * sc, static_cast<NSUInteger>(y0) * sc,
-                         static_cast<NSUInteger>(x1 - x0) * sc, static_cast<NSUInteger>(y1 - y0) * sc};
-            d.uniforms.flags = s.textured | s.offset_colour << 1 | s.use_alpha << 2 | s.ignore_texture_alpha << 3 |
-                               (which == List::PunchThrough) << 4;
-            d.uniforms.shading = static_cast<int32_t>(s.shading);
-            d.uniforms.fog = static_cast<int32_t>(s.fog);
-            d.uniforms.blend = d.pipeline;
-            d.uniforms.alpha_ref = frame.alpha_ref;
-            d.uniforms.order = d.translucent ? order : 0;
-            d.uniforms.lod_bias = s.mipmap_bias;
-            if (!d.count || d.scissor.width == 0 || d.scissor.height == 0)
-                continue;
-            // Opaque and punch-through strips that follow each other with the same state draw as one.
-            // A translucent strip's place in the list decides a tie in the sort, so those stay apart.
-            if (!d.translucent && !m.draws.empty()) {
-                Batch& last = m.draws.back();
-                if (!last.translucent && last.first + last.count == d.first && last.pipeline == d.pipeline &&
-                    last.depth == d.depth && last.texture == d.texture && last.sampler == d.sampler &&
-                    last.scissor.x == d.scissor.x && last.scissor.y == d.scissor.y &&
-                    last.scissor.width == d.scissor.width && last.scissor.height == d.scissor.height &&
-                    std::memcmp(&last.uniforms, &d.uniforms, sizeof d.uniforms) == 0) {
-                    last.count += d.count;
+        m.draws.clear();
+        m.triangles.clear();
+        for (List which : {List::Opaque, List::PunchThrough, List::Translucent}) {
+            uint32_t index = 0;  // the draw's place in its list
+            for (const render::Draw& s : frame.draws) {
+                if (s.list != which)
                     continue;
+                const uint32_t order = index++;
+                if (s.depth == DepthTest::Never)
+                    continue;
+                Batch d{};
+                d.first = static_cast<uint32_t>(m.triangles.size());
+                for (uint32_t i = 0; i + 2 < s.count; ++i) {
+                    Vertex t[3] = {frame.vertices[s.first + i], frame.vertices[s.first + i + 1],
+                                   frame.vertices[s.first + i + 2]};
+                    // A flat strip takes each triangle's colours from its last vertex.
+                    if (!s.gouraud) {
+                        t[0].base = t[1].base = t[2].base;
+                        t[0].offset = t[1].offset = t[2].offset;
+                    }
+                    m.triangles.insert(m.triangles.end(), t, t + 3);
                 }
+                d.count = static_cast<uint32_t>(m.triangles.size()) - d.first;
+                d.translucent = which == List::Translucent;
+                d.pipeline = static_cast<uint32_t>(s.source) | static_cast<uint32_t>(s.target) << 3;
+                // A destination factor of 1 with a source factor of 0, 1, source alpha or its inverse: the
+                // strip adds a term that does not depend on the pixel. A term of 0 times the source
+                // leaves the pixel as it is.
+                const uint32_t source = d.pipeline & 7, target = d.pipeline >> 3;
+                d.adds = d.translucent && target == 1 && (source == 0 || source == 1 || source == 4 || source == 5);
+                if (d.adds && source == 0)
+                    continue;
+                // A translucent polygon tests depth but does not write it, whatever its ISP word says: the
+                // hardware blends each pixel's translucent layers in depth order, so none hides another.
+                const bool write = s.depth_write && !d.translucent;
+                d.depth = static_cast<uint32_t>(s.depth) | write << 3;
+                d.texture = s.textured ? m.texture(s, frame, hw, render, textures_decoded, untextured) : m.white;
+                const uint32_t filter = static_cast<uint32_t>(s.filter);
+                const bool mipmapped = s.textured && s.texture.mipmapped;
+                d.sampler = (filter != 0) | mipmapped << 1 | (filter >= 2) << 2 | s.clamp_u << 3 | s.clamp_v << 4 |
+                            s.flip_u << 5 | s.flip_v << 6;
+                int x0 = frame.clip_x0, y0 = frame.clip_y0, x1 = frame.clip_x1, y1 = frame.clip_y1;
+                if (s.clip == Clip::Inside) {
+                    x0 = std::max(x0, static_cast<int>(s.clip_x0));
+                    y0 = std::max(y0, static_cast<int>(s.clip_y0));
+                    x1 = std::min(x1, static_cast<int>(s.clip_x1));
+                    y1 = std::min(y1, static_cast<int>(s.clip_y1));
+                }
+                x0 = std::clamp(x0, 0, 640);
+                x1 = std::clamp(x1, x0, 640);
+                y0 = std::clamp(y0, 0, 480);
+                y1 = std::clamp(y1, y0, 480);
+                const auto sc = static_cast<NSUInteger>(m.scale);
+                d.scissor = {static_cast<NSUInteger>(x0) * sc, static_cast<NSUInteger>(y0) * sc,
+                             static_cast<NSUInteger>(x1 - x0) * sc, static_cast<NSUInteger>(y1 - y0) * sc};
+                d.uniforms.flags = s.textured | s.offset_colour << 1 | s.use_alpha << 2 | s.ignore_texture_alpha << 3 |
+                                   (which == List::PunchThrough) << 4;
+                d.uniforms.shading = static_cast<int32_t>(s.shading);
+                d.uniforms.fog = static_cast<int32_t>(s.fog);
+                d.uniforms.blend = d.pipeline;
+                d.uniforms.alpha_ref = frame.alpha_ref;
+                d.uniforms.order = d.translucent ? order : 0;
+                d.uniforms.lod_bias = s.mipmap_bias;
+                if (!d.count || d.scissor.width == 0 || d.scissor.height == 0)
+                    continue;
+                // Opaque and punch-through strips that follow each other with the same state draw as one.
+                // A translucent strip's place in the list decides a tie in the sort, so those stay apart.
+                if (!d.translucent && !m.draws.empty()) {
+                    Batch& last = m.draws.back();
+                    if (!last.translucent && last.first + last.count == d.first && last.pipeline == d.pipeline &&
+                        last.depth == d.depth && last.texture == d.texture && last.sampler == d.sampler &&
+                        last.scissor.x == d.scissor.x && last.scissor.y == d.scissor.y &&
+                        last.scissor.width == d.scissor.width && last.scissor.height == d.scissor.height &&
+                        std::memcmp(&last.uniforms, &d.uniforms, sizeof d.uniforms) == 0) {
+                        last.count += d.count;
+                        continue;
+                    }
+                }
+                m.draws.push_back(d);
             }
-            m.draws.push_back(d);
         }
-    }
 
-    const size_t vertex_bytes = m.triangles.size() * sizeof(Vertex);
-    if (vertex_bytes > (m.vertices ? m.vertices.length : 0))
-        m.vertices = [m.device newBufferWithLength:std::max<size_t>(vertex_bytes * 2, 1 << 20)
-                                           options:MTLResourceStorageModeShared];
-    if (vertex_bytes)
-        std::memcpy(m.vertices.contents, m.triangles.data(), vertex_bytes);
+        const size_t vertex_bytes = m.triangles.size() * sizeof(Vertex);
+        if (vertex_bytes > (m.vertices ? m.vertices.length : 0))
+            m.vertices = [m.device newBufferWithLength:std::max<size_t>(vertex_bytes * 2, 1 << 20)
+                                               options:MTLResourceStorageModeShared];
+        if (vertex_bytes)
+            std::memcpy(m.vertices.contents, m.triangles.data(), vertex_bytes);
 
-    Impl::Pending& p = m.pending;
-    p = {};
-    p.open = true;
-    p.target = frame.target;
-    p.started = m.frame_start;
-    m.frame_start = 0;
-    m.newest = frame.target;
-    m.newest_valid = true;
-    p.background = background;
-    p.background_depth = background_depth;
-    p.z_scale = z_scale;
-    colour_of(frame.fog_table_colour, p.fog.table_colour);
-    colour_of(frame.fog_vertex_colour, p.fog.vertex_colour);
-    p.fog.params[0] = frame.fog_density;
-    p.fog.params[1] = z_scale;
-    for (int i = 0; i < 128; ++i) {
-        p.fog.table[i / 2][(i & 1) * 2] = static_cast<float>(frame.fog_table[i][0]) / 255.0f;
-        p.fog.table[i / 2][(i & 1) * 2 + 1] = static_cast<float>(frame.fog_table[i][1]) / 255.0f;
-    }
-    m.encode();
-    ++renders;
-    if (renders % 600 == 0) {
-        // Textures no render has used for a minute.
-        for (auto it = m.textures.begin(); it != m.textures.end();)
-            it = renders > 3600 && it->second.used + 3600 < renders ? m.textures.erase(it) : std::next(it);
+        Impl::Pending& p = m.pending;
+        p = {};
+        p.open = true;
+        p.target = frame.target;
+        p.started = m.frame_start;
+        m.frame_start = 0;
+        m.newest = frame.target;
+        m.newest_valid = true;
+        p.background = background;
+        p.background_depth = background_depth;
+        p.z_scale = z_scale;
+        colour_of(frame.fog_table_colour, p.fog.table_colour);
+        colour_of(frame.fog_vertex_colour, p.fog.vertex_colour);
+        p.fog.params[0] = frame.fog_density;
+        p.fog.params[1] = z_scale;
+        for (int i = 0; i < 128; ++i) {
+            p.fog.table[i / 2][(i & 1) * 2] = static_cast<float>(frame.fog_table[i][0]) / 255.0f;
+            p.fog.table[i / 2][(i & 1) * 2 + 1] = static_cast<float>(frame.fog_table[i][1]) / 255.0f;
+        }
+        m.encode();
+        ++renders;
+        if (renders % 600 == 0) {
+            // Textures no render has used for a minute.
+            for (auto it = m.textures.begin(); it != m.textures.end();)
+                it = renders > 3600 && it->second.used + 3600 < renders ? m.textures.erase(it) : std::next(it);
+        }
     }
 }
 
 void Gpu::present(const Hardware& hw, double refresh, bool white, double mark) {
-    Impl& m = *impl_;
-    if (!m.layer)
-        return;
-    int pw = 0, ph = 0;
-    SDL_GetWindowSizeInPixels(m.window, &pw, &ph);
-    if (pw <= 0 || ph <= 0)
-        return;
-    m.layer.drawableSize = CGSizeMake(pw, ph);
-    // The window shows the newest render, not the framebuffer that FB_R_SOF1 scans out: the port
-    // draws a display list at once, where the console's PowerVR drew it during the next frame, and
-    // the game shows each render at the vertical blank after that. So the newest render is the
-    // picture that the display shows next, a frame before it does. The GPU draws the present after
-    // it. A render that overflowed the pool and is still drawing shows with fragments missing, which
-    // happens at the first frame of a large explosion at most.
-    const uint32_t shown = m.newest_valid ? m.newest : hw.registers[kFbRSof1] & 0xFFFFFF;
-    if (m.pending.open && m.pending.target == shown && (!m.last || m.last.status >= MTLCommandBufferStatusCompleted))
-        m.finish();
-    id<CAMetalDrawable> drawable = [m.layer nextDrawable];
-    if (!drawable)
-        return;
-    id<MTLCommandBuffer> cmd = [m.queue commandBuffer];
-    MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
-    pass.colorAttachments[0].texture = drawable.texture;
-    pass.colorAttachments[0].loadAction = MTLLoadActionClear;
-    pass.colorAttachments[0].clearColor = white ? MTLClearColorMake(1, 1, 1, 1) : MTLClearColorMake(0, 0, 0, 1);
-    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
-    id<MTLRenderCommandEncoder> enc = [cmd renderCommandEncoderWithDescriptor:pass];
-    auto it = m.targets.find(shown);
-    // The display shows only what a render drew. A title that writes a frame into video memory
-    // itself would show black: IKARUGA_RENDER_DEBUG reports each such vertical blank.
-    if (it == m.targets.end() && renders > 0 && std::getenv("IKARUGA_RENDER_DEBUG"))
-        std::fprintf(stderr, "render: the display shows %08x, which no render drew\n", hw.registers[kFbRSof1]);
-    if (it != m.targets.end() && !white) {
-        id<MTLTexture> frame = m.bloom ? m.bloomed(it->second) : it->second;
-        // 4:3 in the middle of the window, with black bars where it is wider or taller.
-        double w = pw, h = pw * 3.0 / 4.0;
-        if (h > ph) {
-            h = ph;
-            w = ph * 4.0 / 3.0;
-        }
-        // A frame larger than the window's picture is averaged over each window pixel, which smooths
-        // its edges as supersampling does.
-        const int32_t taps = std::clamp(static_cast<int32_t>(std::ceil(frame.height / h - 0.01)), 1, 8);
-        const Pass p{{static_cast<float>(1.0 / (w * taps)), static_cast<float>(1.0 / (h * taps))}, taps, 0};
-        [enc setViewport:(MTLViewport){(pw - w) / 2, (ph - h) / 2, w, h, 0, 1}];
-        [enc setRenderPipelineState:m.present];
-        [enc setFragmentTexture:frame atIndex:0];
-        [enc setFragmentSamplerState:m.present_sampler atIndex:0];
-        [enc setFragmentBytes:&p length:sizeof p atIndex:0];
-        [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
-    }
-    if (!white && m.overlay_shown && m.overlay_shown.width == static_cast<NSUInteger>(pw) &&
-        m.overlay_shown.height == static_cast<NSUInteger>(ph)) {
-        const Pass p{{0, 0}, 1, 0};
-        [enc setViewport:(MTLViewport){0, 0, static_cast<double>(pw), static_cast<double>(ph), 0, 1}];
-        [enc setRenderPipelineState:m.overlay];
-        [enc setFragmentTexture:m.overlay_shown atIndex:0];
-        [enc setFragmentSamplerState:m.present_sampler atIndex:0];
-        [enc setFragmentBytes:&p length:sizeof p atIndex:0];
-        [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
-    }
-    [enc endEncoding];
-    {
-        std::shared_ptr<Impl::Presented> p = m.presented;
-        const double half = refresh_period() / 2;
-        [drawable addPresentedHandler:^(id<MTLDrawable> shown) {
-            const double t = shown.presentedTime;
-            if (t > p->last.load())
-                p->last.store(t);
-            if (refresh > 0 && t > refresh + half)
-                ++p->late;
-            if (p->pacing || mark > 0) {
-                std::lock_guard<std::mutex> lock(p->lock);
-                if (p->pacing)
-                    p->times.push_back(t);
-                if (mark > 0)
-                    p->marks.emplace_back(mark, t);
+    // The game loop never returns to the run loop, which would drain the objects that Metal
+    // hands back for autorelease: a drawable, an encoder and a handler each frame.
+    @autoreleasepool {
+        Impl& m = *impl_;
+        if (!m.layer)
+            return;
+        int pw = 0, ph = 0;
+        SDL_GetWindowSizeInPixels(m.window, &pw, &ph);
+        if (pw <= 0 || ph <= 0)
+            return;
+        m.layer.drawableSize = CGSizeMake(pw, ph);
+        // The window shows the newest render, not the framebuffer that FB_R_SOF1 scans out: the port
+        // draws a display list at once, where the console's PowerVR drew it during the next frame, and
+        // the game shows each render at the vertical blank after that. So the newest render is the
+        // picture that the display shows next, a frame before it does. The GPU draws the present after
+        // it. A render that overflowed the pool and is still drawing shows with fragments missing, which
+        // happens at the first frame of a large explosion at most.
+        const uint32_t shown = m.newest_valid ? m.newest : hw.registers[kFbRSof1] & 0xFFFFFF;
+        if (m.pending.open && m.pending.target == shown &&
+            (!m.last || m.last.status >= MTLCommandBufferStatusCompleted))
+            m.finish();
+        id<CAMetalDrawable> drawable = [m.layer nextDrawable];
+        if (!drawable)
+            return;
+        id<MTLCommandBuffer> cmd = [m.queue commandBuffer];
+        MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
+        pass.colorAttachments[0].texture = drawable.texture;
+        pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+        pass.colorAttachments[0].clearColor = white ? MTLClearColorMake(1, 1, 1, 1) : MTLClearColorMake(0, 0, 0, 1);
+        pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+        id<MTLRenderCommandEncoder> enc = [cmd renderCommandEncoderWithDescriptor:pass];
+        auto it = m.targets.find(shown);
+        // The display shows only what a render drew. A title that writes a frame into video memory
+        // itself would show black: IKARUGA_RENDER_DEBUG reports each such vertical blank.
+        if (it == m.targets.end() && renders > 0 && std::getenv("IKARUGA_RENDER_DEBUG"))
+            std::fprintf(stderr, "render: the display shows %08x, which no render drew\n", hw.registers[kFbRSof1]);
+        if (it != m.targets.end() && !white) {
+            id<MTLTexture> frame = m.bloom ? m.bloomed(it->second) : it->second;
+            // 4:3 in the middle of the window, with black bars where it is wider or taller.
+            double w = pw, h = pw * 3.0 / 4.0;
+            if (h > ph) {
+                h = ph;
+                w = ph * 4.0 / 3.0;
             }
-        }];
+            // A frame larger than the window's picture is averaged over each window pixel, which smooths
+            // its edges as supersampling does.
+            const int32_t taps = std::clamp(static_cast<int32_t>(std::ceil(frame.height / h - 0.01)), 1, 8);
+            const Pass p{{static_cast<float>(1.0 / (w * taps)), static_cast<float>(1.0 / (h * taps))}, taps, 0};
+            [enc setViewport:(MTLViewport){(pw - w) / 2, (ph - h) / 2, w, h, 0, 1}];
+            [enc setRenderPipelineState:m.present];
+            [enc setFragmentTexture:frame atIndex:0];
+            [enc setFragmentSamplerState:m.present_sampler atIndex:0];
+            [enc setFragmentBytes:&p length:sizeof p atIndex:0];
+            [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        }
+        if (!white && m.overlay_shown && m.overlay_shown.width == static_cast<NSUInteger>(pw) &&
+            m.overlay_shown.height == static_cast<NSUInteger>(ph)) {
+            const Pass p{{0, 0}, 1, 0};
+            [enc setViewport:(MTLViewport){0, 0, static_cast<double>(pw), static_cast<double>(ph), 0, 1}];
+            [enc setRenderPipelineState:m.overlay];
+            [enc setFragmentTexture:m.overlay_shown atIndex:0];
+            [enc setFragmentSamplerState:m.present_sampler atIndex:0];
+            [enc setFragmentBytes:&p length:sizeof p atIndex:0];
+            [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        }
+        [enc endEncoding];
+        {
+            std::shared_ptr<Impl::Presented> p = m.presented;
+            const double half = refresh_period() / 2;
+            [drawable addPresentedHandler:^(id<MTLDrawable> shown) {
+                const double t = shown.presentedTime;
+                if (t > p->last.load())
+                    p->last.store(t);
+                if (refresh > 0 && t > refresh + half)
+                    ++p->late;
+                if (p->pacing || mark > 0) {
+                    std::lock_guard<std::mutex> lock(p->lock);
+                    if (p->pacing)
+                        p->times.push_back(t);
+                    if (mark > 0)
+                        p->marks.emplace_back(mark, t);
+                }
+            }];
+        }
+        // Core Animation shows a drawable at about the second refresh after its time, so its time is 1.5
+        // refreshes before the asked one.
+        if (refresh > 0 && m.display_sync)
+            [cmd presentDrawable:drawable atTime:refresh - 1.5 * refresh_period()];
+        else
+            [cmd presentDrawable:drawable];
+        [cmd commit];
     }
-    // Core Animation shows a drawable at about the second refresh after its time, so its time is 1.5
-    // refreshes before the asked one.
-    if (refresh > 0 && m.display_sync)
-        [cmd presentDrawable:drawable atTime:refresh - 1.5 * refresh_period()];
-    else
-        [cmd presentDrawable:drawable];
-    [cmd commit];
 }
 
 void Gpu::start_frame(double t) { impl_->frame_start = t; }
@@ -1031,23 +1039,25 @@ double Gpu::refresh_period() const {
 double Gpu::now() { return CACurrentMediaTime(); }
 
 void Gpu::set_overlay(const uint32_t* pixels, uint32_t width, uint32_t height) {
-    Impl& m = *impl_;
-    if (!pixels || !width || !height || !m.device) {
-        m.overlay_shown = nil;
-        return;
+    @autoreleasepool {
+        Impl& m = *impl_;
+        if (!pixels || !width || !height || !m.device) {
+            m.overlay_shown = nil;
+            return;
+        }
+        __strong id<MTLTexture>& t = m.overlays[m.overlay_next];
+        m.overlay_next ^= 1;
+        if (!t || t.width != width || t.height != height) {
+            MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                                                                         width:width
+                                                                                        height:height
+                                                                                     mipmapped:NO];
+            d.storageMode = MTLStorageModeShared;
+            t = [m.device newTextureWithDescriptor:d];
+        }
+        [t replaceRegion:MTLRegionMake2D(0, 0, width, height) mipmapLevel:0 withBytes:pixels bytesPerRow:width * 4];
+        m.overlay_shown = t;
     }
-    __strong id<MTLTexture>& t = m.overlays[m.overlay_next];
-    m.overlay_next ^= 1;
-    if (!t || t.width != width || t.height != height) {
-        MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
-                                                                                     width:width
-                                                                                    height:height
-                                                                                 mipmapped:NO];
-        d.storageMode = MTLStorageModeShared;
-        t = [m.device newTextureWithDescriptor:d];
-    }
-    [t replaceRegion:MTLRegionMake2D(0, 0, width, height) mipmapLevel:0 withBytes:pixels bytesPerRow:width * 4];
-    m.overlay_shown = t;
 }
 
 bool Gpu::read_displayed(const Hardware& hw, std::vector<uint32_t>& pixels, uint32_t& width, uint32_t& height,
@@ -1058,26 +1068,28 @@ bool Gpu::read_displayed(const Hardware& hw, std::vector<uint32_t>& pixels, uint
 unsigned Gpu::scale() const { return impl_->scale; }
 
 void Gpu::set_scale(unsigned scale) {
-    Impl& m = *impl_;
-    scale = std::max(1u, scale);
-    if (!m.device || scale == m.scale)
-        return;
-    m.finish();
-    m.scale = scale;
-    m.width = 640 * scale;
-    m.height = 480 * scale;
-    m.size_buffers();
-    id<MTLCommandBuffer> cmd = [m.queue commandBuffer];
-    for (auto& [address, t] : m.targets) {
-        id<MTLTexture> resized = m.picture(m.width, m.height);
-        const auto taps = static_cast<int32_t>((t.height + m.height - 1) / m.height);
-        m.pass(cmd, m.resample, resized, {{1.0f / (m.width * taps), 1.0f / (m.height * taps)}, taps, 0}, t);
-        t = resized;
+    @autoreleasepool {
+        Impl& m = *impl_;
+        scale = std::max(1u, scale);
+        if (!m.device || scale == m.scale)
+            return;
+        m.finish();
+        m.scale = scale;
+        m.width = 640 * scale;
+        m.height = 480 * scale;
+        m.size_buffers();
+        id<MTLCommandBuffer> cmd = [m.queue commandBuffer];
+        for (auto& [address, t] : m.targets) {
+            id<MTLTexture> resized = m.picture(m.width, m.height);
+            const auto taps = static_cast<int32_t>((t.height + m.height - 1) / m.height);
+            m.pass(cmd, m.resample, resized, {{1.0f / (m.width * taps), 1.0f / (m.height * taps)}, taps, 0}, t);
+            t = resized;
+        }
+        [cmd commit];
+        m.last = cmd;
+        m.shown_from = nil;
+        std::printf("render: drawing at %ux%u\n", m.width, m.height);
     }
-    [cmd commit];
-    m.last = cmd;
-    m.shown_from = nil;
-    std::printf("render: drawing at %ux%u\n", m.width, m.height);
 }
 
 unsigned Gpu::anisotropy() const { return impl_->anisotropy; }

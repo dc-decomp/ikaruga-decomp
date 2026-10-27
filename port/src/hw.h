@@ -77,6 +77,7 @@ Stats& stats();
 
 // Loads the boot ROM image (owner data, optional): the system font is read from it.
 bool load_rom(const std::string& path);
+bool rom_loaded();
 
 // The disc's tracks, from the GDI that dcdisc chd2gdi writes (port/src/bios.cpp).
 bool open_disc(const std::string& path, std::string& error);

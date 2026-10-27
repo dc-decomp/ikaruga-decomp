@@ -12,6 +12,41 @@
 
 namespace render {
 
+bool ask_for_disc(std::string& path) {
+    if (!SDL_InitSubSystem(SDL_INIT_VIDEO))
+        return false;
+    struct Answer {
+        bool done = false;
+        std::string path;
+    } answer;
+    static const SDL_DialogFileFilter kFilters[] = {{"Dreamcast disc image (GDI)", "gdi"}};
+    const SDL_PropertiesID props = SDL_CreateProperties();
+    SDL_SetPointerProperty(props, SDL_PROP_FILE_DIALOG_FILTERS_POINTER, const_cast<SDL_DialogFileFilter*>(kFilters));
+    SDL_SetNumberProperty(props, SDL_PROP_FILE_DIALOG_NFILTERS_NUMBER, 1);
+    SDL_SetStringProperty(props, SDL_PROP_FILE_DIALOG_TITLE_STRING, "Choose the Ikaruga disc (.gdi)");
+    SDL_ShowFileDialogWithProperties(
+        SDL_FILEDIALOG_OPENFILE,
+        [](void* data, const char* const* files, int) {
+            auto* a = static_cast<Answer*>(data);
+            if (files && files[0])
+                a->path = files[0];
+            a->done = true;
+        },
+        &answer, props);
+    while (!answer.done) {
+        SDL_PumpEvents();
+        SDL_Delay(10);
+    }
+    SDL_DestroyProperties(props);
+    SDL_QuitSubSystem(SDL_INIT_VIDEO);
+    path = answer.path;
+    return !path.empty();
+}
+
+void show_error(const std::string& message) {
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Ikaruga", message.c_str(), nullptr);
+}
+
 Window::~Window() {
     if (std::getenv("IKARUGA_PACING") && refresh_ > 0)
         std::fprintf(stderr,

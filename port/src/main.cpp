@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <string>
@@ -16,6 +17,7 @@
 #include <vector>
 
 #include "decomp.h"
+#include "disc.h"
 #include "dream/runtime/aica/aica.h"
 #include "dream/runtime/maple/maple.h"
 #include "dream/runtime/mem/dc_memory.h"
@@ -25,6 +27,7 @@
 #include "hw.h"
 #include "render/activity.h"
 #include "render/audio.h"
+#include "render/settings.h"
 #include "render/window.h"
 #include "saves.h"
 #include "sh4/sh4.h"
@@ -65,10 +68,12 @@ size_t load_file(const std::string& path, uint32_t address) {
 void usage() {
     std::fprintf(stderr,
                  "usage: ikaruga [options]\n"
-                 "  --disc FILE.gdi   the disc (default game/disc/Ikaruga (Japan).gdi)\n"
-                 "  --boot FILE       1ST_READ.BIN, descrambled (default game/extracted/1ST_READ.plain.bin)\n"
-                 "  --bios FILE       a boot ROM image, for the system font (optional)\n"
-                 "  --saves DIR       the memory card's files (default saves)\n"
+                 "  --disc FILE.gdi   the disc (default game/disc/Ikaruga (Japan).gdi, else the one a window\n"
+                 "                    asked for)\n"
+                 "  --boot FILE       1ST_READ.BIN, descrambled (default the disc's)\n"
+                 "  --bios FILE       a boot ROM image, for the system font (optional: else macOS's Hiragino)\n"
+                 "  --saves DIR       the memory card's files (default saves, or for a window that is not\n"
+                 "                    scripted the settings folder's)\n"
                  "  --frames N        stop after N frames\n"
                  "  --window          open a window: picture, sound, keyboard and gamepad, at the\n"
                  "                    console's speed\n"
@@ -113,8 +118,9 @@ int main(int argc, char** argv) {
     sigaction(SIGSEGV, &sa, nullptr);
     sigaction(SIGBUS, &sa, nullptr);
     sigaction(SIGABRT, &sa, nullptr);
-    std::string disc = "game/disc/Ikaruga (Japan).gdi", boot = "game/extracted/1ST_READ.plain.bin";
-    std::string bios_rom, ip = "game/extracted/IP.BIN";
+    std::string disc = "game/disc/Ikaruga (Japan).gdi", boot, saves_dir;
+    bool disc_given = false;
+    std::string bios_rom;
     uint64_t max_frames = 0;
     std::vector<uint64_t> screenshots;
     bool window = false, unthrottled = false, audio = true;
@@ -139,10 +145,13 @@ int main(int argc, char** argv) {
             }
             return argv[++i];
         };
-        if (a == "--disc") disc = next();
+        if (a == "--disc") {
+            disc = next();
+            disc_given = true;
+        }
         else if (a == "--boot") boot = next();
         else if (a == "--bios") bios_rom = next();
-        else if (a == "--saves") saves::set_directory(next());
+        else if (a == "--saves") saves_dir = next();
         else if (a == "--frames") max_frames = std::strtoull(next().c_str(), nullptr, 0);
         else if (a == "--window") window = true;
         else if (a == "--unthrottled") unthrottled = true;
@@ -187,6 +196,7 @@ int main(int argc, char** argv) {
         else if (a == "--record-input") record_path = next();
         else if (a == "--replay-input") replay_path = next();
         else if (a == "--no-audio") audio = false;
+        else if (a.rfind("-psn_", 0) == 0) continue;  // the process serial number older macOS passes
         else {
             std::fprintf(stderr, "ikaruga: unknown option %s\n", a.c_str());
             usage();
@@ -194,19 +204,81 @@ int main(int argc, char** argv) {
         }
     }
 
+    // The app started from Finder has no options, and plays in a window.
+    if (std::strstr(argv[0], ".app/Contents/MacOS/") &&
+        std::all_of(argv + 1, argv + argc, [](const char* s) { return std::strncmp(s, "-psn_", 5) == 0; }))
+        window = true;
+    const bool scripted_run = std::getenv("IKARUGA_AUTOPLAY") || std::getenv("IKARUGA_SHOTS_AFTER") ||
+                              !presses.empty() || !replay_path.empty() || max_frames || !screenshots.empty();
+    // A run that someone plays, which Finder may have started with no terminal and in /.
+    const bool playing = window && !scripted_run;
+    auto fail = [&](const std::string& message) {
+        std::fprintf(stderr, "%s\n", message.c_str());
+        if (playing)
+            render::show_error(message);
+        return 2;
+    };
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    // The disc: --disc, else the repository's, else the one that disc.txt next to the bindings
+    // names, which a played run asks for once.
+    bool asked = false;
+    if (!disc_given && !fs::exists(disc, ec)) {
+        std::string remembered = render::read_settings(render::settings_path("disc.txt"));
+        while (!remembered.empty() && std::isspace(static_cast<unsigned char>(remembered.back())))
+            remembered.pop_back();
+        if (!remembered.empty() && fs::exists(remembered, ec))
+            disc = remembered;
+        else if (playing) {
+            if (!render::ask_for_disc(disc))
+                return 0;
+            asked = true;
+        }
+    }
     hw::system();  // the console's memory is where the files below go
     std::string err;
-    if (!hw::open_disc(disc, err)) {
-        std::fprintf(stderr, "disc: %s\n", err.c_str());
-        return 2;
+    if (!hw::open_disc(disc, err))
+        return fail("disc: " + err);
+    // IP.BIN, with the title that names the disc, and the program, from the disc's file system:
+    // a GD-ROM holds 1ST_READ.BIN unscrambled.
+    std::vector<uint8_t> ip;
+    if (!disc::read_bootstrap(ip) || std::memcmp(ip.data() + 0x80, "IKARUGA ", 8) != 0)
+        return fail("disc: " + disc + " is not Ikaruga's");
+    if (asked && !render::write_settings(render::settings_path("disc.txt"), disc + "\n"))
+        std::fprintf(stderr, "disc: cannot remember %s\n", disc.c_str());
+    for (size_t i = 0; i < ip.size(); ++i)
+        guest::store<uint8_t>(0x8C008000u + static_cast<uint32_t>(i), ip[i]);
+    size_t image = 0;
+    if (!boot.empty()) {
+        if (!(image = load_file(boot, 0x8C010000u)))
+            return fail("cannot read " + boot);
     }
-    const size_t image = load_file(boot, 0x8C010000u);
-    if (!image) {
-        std::fprintf(stderr, "cannot read %s\n", boot.c_str());
-        return 2;
+    else {
+        std::vector<uint8_t> program;
+        if (!disc::read_file("1ST_READ.BIN", program) || program.empty())
+            return fail("disc: no 1ST_READ.BIN on " + disc);
+        for (size_t i = 0; i < program.size(); ++i)
+            guest::store<uint8_t>(0x8C010000u + static_cast<uint32_t>(i), program[i]);
+        image = program.size();
     }
     guest::image_end = 0x8C010000u + static_cast<uint32_t>(image);
-    load_file(ip, 0x8C008000u);
+    // A played run keeps the card and finds the boot ROM next to the bindings. Its first run takes
+    // the working directory's card along, which stays where it is.
+    if (saves_dir.empty() && playing) {
+        saves_dir = render::settings_path("saves");
+        if (!fs::exists(saves_dir, ec) && fs::is_directory("saves", ec)) {
+            fs::copy("saves", saves_dir, fs::copy_options::recursive, ec);
+            std::printf("card: %s %s from saves\n", ec ? "cannot copy" : "copied", saves_dir.c_str());
+        }
+    }
+    if (!saves_dir.empty())
+        saves::set_directory(saves_dir);
+    if (bios_rom.empty() && playing)
+        for (const std::string& p : {render::settings_path("dc_bios.bin"), std::string("bios/dc_bios.bin")})
+            if (fs::exists(p, ec)) {
+                bios_rom = p;
+                break;
+            }
     if (!bios_rom.empty() && !hw::load_rom(bios_rom))
         std::fprintf(stderr, "cannot read %s; the system font will be empty\n", bios_rom.c_str());
     bios::install_vectors();
@@ -237,18 +309,16 @@ int main(int argc, char** argv) {
     };
     if (window) {
         std::string error;
-        const bool scripted = std::getenv("IKARUGA_AUTOPLAY") || std::getenv("IKARUGA_SHOTS_AFTER") ||
-                              !presses.empty() || !replay_path.empty() || max_frames || !screenshots.empty();
         // Metal shows its performance HUD only when this is set before the first device; the menu's
         // METAL HUD then shows or hides it (render/gpu.h). Not in a scripted run, whose output it
         // would fill with its notes.
-        if (!scripted) {
+        if (!scripted_run) {
             setenv("MTL_HUD_ENABLED", "1", 0);
             setenv("MTL_HUD_DISABLE_MENU_BAR", "1", 0);  // the menu's row switches it, not the menu bar's
             hw::second_pad() = true;
         }
         screen = std::make_unique<render::Window>();
-        if (!screen->open(static_cast<unsigned>(scale), "Ikaruga", scripted, error)) {
+        if (!screen->open(static_cast<unsigned>(scale), "Ikaruga", scripted_run, error)) {
             std::fprintf(stderr, "window: %s\n", error.c_str());
             return 2;
         }

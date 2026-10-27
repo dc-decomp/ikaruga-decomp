@@ -267,6 +267,17 @@ The reference build's Vulkan tools are not needed.
      --bios bios/dc_bios.bin
    ```
 
+   A window that is not scripted is a played run. It finds the disc as `--disc` names it, at
+   `game/disc/Ikaruga (Japan).gdi`, or as `disc.txt` names it. Without one, it asks for the disc's
+   `.gdi` in an open dialog and keeps the answer in `disc.txt`. Every run reads the game's program
+   and `IP.BIN` from the disc, unless `--boot` names a program, so it needs no `game/extracted`.
+   Without `--bios`, a played run takes the boot ROM image `dc_bios.bin` from the settings folder,
+   or `bios/dc_bios.bin`. Without an image, macOS's Hiragino Sans draws the game's Japanese text,
+   which the boot ROM's font would. Its memory card is the folder `saves` next to the settings, and its first
+   run copies the working directory's `saves` there, which stays as it is. A played run shows its
+   errors in a message box. `disc.txt`, `saves`, `dc_bios.bin` and the files below go to
+   `~/Library/Application Support/ikaruga/ikaruga`.
+
    The arrow keys are the stick. Z shoots, X switches polarity, A releases the homing laser and
    Return is Start. A gamepad works by button position. Escape, F1 or a gamepad's back button
    opens the menu, and the game stops while it is open. The mouse works there too: a click on a
@@ -286,8 +297,8 @@ The reference build's Vulkan tools are not needed.
    and start as a copy of dream-recomp's. Player 1 takes the first gamepad that was plugged in and
    player 2 the second, and the page's GAMEPAD row swaps them. Player 2 has no keys at first. The
    second controller joins when player 2 presses Start during a game, as on the console. A
-   scripted run has a second controller only when its presses use one (`2start@3000`). Its GRAPHICS page changes only the picture. Its settings
-   go to `graphics.txt` in the same folder:
+   scripted run has a second controller only when its presses use one (`2start@3000`). Its GRAPHICS
+   page changes only the picture. Its settings go to `graphics.txt` in the same folder:
 
    | Setting | What it does |
    | --- | --- |
@@ -328,12 +339,11 @@ The reference build's Vulkan tools are not needed.
    The build also makes `build-port/Ikaruga.app`, the same program in an app bundle whose
    Info.plist declares it a game. In fullscreen, macOS turns on Game Mode for it, which gives the
    game priority on the CPU and the GPU, and the menu bar shows a game controller. The plain
-   `build-port/ikaruga` gets no Game Mode. The bundle's program also reads the disc relative to
-   the working directory, so start `build-port/Ikaruga.app/Contents/MacOS/ikaruga` from the
-   repository's root, with the same options. `open Ikaruga.app` starts it in `/`, where it finds
-   no disc.
+   `build-port/ikaruga` gets no Game Mode. Started from Finder or with `open`, without options, the
+   app plays in a window as a played run, which finds the disc and the card as above.
 
-   `--saves DIR` names the memory card, a directory (default `saves`). The game's file in it,
+   `--saves DIR` names the memory card, a directory (default `saves` in the working directory, or
+   for a played run the settings folder's `saves`). The game's file in it,
    `IKARUGA_DATA.VMS`, is the image the game writes to a Visual Memory unit, in the VMS layout
    that Dreamcast save tools read. As on the console, the game saves on its own only with AUTO
    SAVE on in its options, which a new card has off, at the next change of scene. BACKUP in its

@@ -26,6 +26,11 @@ struct SDL_Window;
 
 namespace render {
 
+// Asks for the disc image in the system's open dialog. False when the player cancels.
+bool ask_for_disc(std::string& path);
+// Shows an error in a message box, for a run that no terminal shows.
+void show_error(const std::string& message);
+
 class Window {
 public:
     Window() = default;
