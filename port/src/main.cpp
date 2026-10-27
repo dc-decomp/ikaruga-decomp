@@ -754,9 +754,10 @@ int main(int argc, char** argv) {
     if (streams)
         std::fclose(streams);
     if (sink.is_open())
-        std::printf("sound: %llu samples, %llu dropped because the run was ahead of the device; the queue held %d "
-                    "to %d, the rate ratio ended at %.5f\n",
+        std::printf("sound: %llu samples, %llu dropped because the run was ahead of the device, %llu refills with "
+                    "silence after the device ran dry; the queue held %d to %d, the rate ratio ended at %.5f\n",
                     static_cast<unsigned long long>(sink.pushed), static_cast<unsigned long long>(sink.dropped),
+                    static_cast<unsigned long long>(sink.refills),
                     sink.least, sink.most, static_cast<double>(sink.ratio()));
     const hw::Stats& s = hw::stats();
     std::printf("stop: %s after %llu frames\n", why.c_str(), static_cast<unsigned long long>(hw::frames()));

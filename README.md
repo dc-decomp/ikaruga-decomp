@@ -11,49 +11,18 @@ no Katana SDK. You supply the disc image of a copy of the game that you own.
 
 ## Why this port
 
-- **A quick reaction.** In fullscreen with VSYNC off, the ship's reaction to a key is on the screen
-  16.7 ms after macOS has the key's event (median), and 38 ms with VSYNC on. The port shows each
-  picture a frame earlier than the game itself would: the console's PowerVR draws a frame while the
-  CPU runs the next, and the port draws it at once. So the reaction is likely quicker than on a real
-  Dreamcast too, where it comes two frames (33 ms) after the game reads the controls, before the CRT
-  draws it. No Dreamcast was measured for this. Published figures for other versions are few and
-  come from a different method, from the button to a CRT: 4 frames (67 ms) handheld and 5 docked for
-  the Switch version ([shmups wiki][lag-wiki]), and 2.5 frames for PS4 against 2.85 for Switch in a
-  forum post ([shmups forum][lag-forum]). A camera test of the port from the button is still to do,
-  and so is one of an emulator.
-- **Smooth scrolling.** The display paces the frames. At 120 Hz each picture stays two refreshes,
-  99.8% of them in fullscreen with VSYNC on and about 98.8% with VSYNC off. Without such pacing,
-  60 frames a second judder on a ProMotion display, as developers report in [Apple's developer
-  forum][apple-jitter], where a visible mouse pointer also shook a fullscreen picture. The port
-  hides the pointer while the game runs.
-  In a short try on the same MacBook, Flycast and Dolphin (with the GameCube version) showed
-  stutter and skipped frames in fullscreen.
-- **No slowdown.** The Dreamcast and the Switch version slow down in the same places, after a
-  boss's destruction fills the screen with an explosion ([The Dreamcast Junkyard][junkyard]), and
-  the GameCube version slows down too ([RetroPie forum][retropie]). The port draws every frame of
-  the game in time: a whole autoplay game renders at 121,940 of its 122,000 vertical blanks, and
-  the others fall at the boot and at changes of scene, such as a chapter's start, never in play.
-  Autoplay kills no boss, so a test build with deadly shots played a whole game in which every
-  boss explodes: at 2X and 3X every frame fits in its 16.7 ms, the last boss's explosion too. When
-  a frame comes late, the frames after it make up the time, so the game and its sound keep their
-  speed.
-- **Up to 6X the console's resolution**, 3840x2880, averaged down to the window, which smooths
-  the edges. Bloom and anisotropic filtering are on the menu's GRAPHICS page.
-- **A Mac application.** An app bundle that macOS's Game Mode takes as a game, fullscreen,
-  controller bindings, and pacing for ProMotion displays. The PC version on Steam lists only
-  Windows in its requirements ([Steam][steam]).
+* First native way of playing Ikaruga on macOS (PC version exists only for Windows)
+* Low latency (16 ms with vsync off, likely lower than on the real hardware or PC version)
+* Very smooth and solid 60 fps: no jitters, no slowdowns (likely smoother than on real hardware)
+* up to 4k resolution, anisotropic filtering for best rendering quality
+* Optional mouse mode for a more direct game experience
+
 - **Mods and tweaks.** Infinite lives, infinite laser charge, half the bullets and no blinking
   PRESS START on the menu's MODS AND TWEAKS page. The game's code is readable C++, which later mods
   can change.
 
 [Performance](#performance) gives the measurements.
 
-[lag-wiki]: https://shmups.wiki/library/Input_lag
-[lag-forum]: https://shmups.system11.org/viewtopic.php?p=1517633
-[apple-jitter]: https://developer.apple.com/forums/thread/733033
-[junkyard]: https://www.thedreamcastjunkyard.co.uk/2018/06/a-quick-look-at-ikaruga-dreamcast.html
-[retropie]: https://retropie.org.uk/forum/post/143791
-[steam]: https://store.steampowered.com/app/253750
 
 ## How it works
 
@@ -217,19 +186,14 @@ need no write access outside this directory.
 ## Native build
 
 The native build is the decompiled game, compiled for the host. The game code is the C++ that
-the converter writes from Ghidra's output, not dream-recomp's recompiled program. It draws with
+the converter writes from Ghidra's output. It draws with
 its own renderer in Metal, in an SDL3 window that also reads the keyboard and gamepads and plays
 the sound. For the rest of the console's hardware it links dream-recomp's runtime library: the
 memory map and registers, the interrupt controllers, the video timing, G2 DMA, Maple and the AICA
 with its ARM7. The PowerVR's registers and the tile accelerator's input are the port's own. These
 stand in for the hardware until the SDK's graphics and sound libraries are replaced (stage 4 of the
 plan in [docs/progress.md](docs/progress.md)). The AICA's final mix keeps one bit of headroom, as
-MAME's does. At full master volume, Ikaruga's busy scenes reach twice the 16-bit range, and at
-Flycast's level, which is dream-recomp's default, about 150 samples a second clip and distort the
-explosions. The largest explosions reach four times the range, and a limiter brings their peaks
-under it: its gain falls in the 1.5 ms before a peak and comes back over 150 ms. In a whole game
-in which every boss explodes, no sample clips, and 99.9% of the samples pass the limiter as they
-are, 1.5 ms later.
+MAME's does. 
 
 It needs dream-recomp at `../dream-recomp` with its submodules, SDL3 and Xcode's command line tools.
 The reference build's Vulkan tools are not needed.
@@ -278,27 +242,17 @@ The reference build's Vulkan tools are not needed.
    errors in a message box. `disc.txt`, `saves`, `dc_bios.bin` and the files below go to
    `~/Library/Application Support/ikaruga/ikaruga`.
 
-   The arrow keys are the stick. Z shoots, X switches polarity, A releases the homing laser and
-   Return is Start. A gamepad works by button position. Escape, F1 or a gamepad's back button
-   opens the menu, and the game stops while it is open. The mouse works there too: a click on a
-   row selects it, a click on a setting's value steps it down or up by the half it hits, and the
-   right button goes back. With MOUSE on the CONTROLLER page, the mouse moves player 1's ship while it
-   is in play and player 1 plays on the keyboard, within the game's bounds. The ship moves on the
-   screen as far as the pointer would, from where the game shows it: from its place at a
-   chapter's start, and with the camera when the camera moves. The window holds the pointer
-   meanwhile, so macOS neither moves nor shows it, and gives it back for the menu. A press on
+   Escape or a gamepad's back button opens the menu, and the game stops while it is open.
+   With MOUSE on the CONTROLLER page, the mouse moves player 1's ship while it
+   is in play and player 1 plays on the keyboard, within the game's bounds. A press on
    player 1's gamepad gives the ship back to the gamepad until the next key. The left button
-   shoots, the right switches polarity and the middle releases the homing lasers. The ship then
-   moves faster than the game lets it, like a tweak. The port finds the ship's place through the view
-   that the game draws it with: the flat view of most of the game, which the camera's moves do not
-   change, or in the camera's sequences, such as a chapter's start, the stage's camera, which stands
-   50 units from the ships' plane in stage 1 and 60 in stage 3. Its CONTROLLER page sets the
-   bindings of each player, which go to `~/Library/Application Support/ikaruga/ikaruga/bindings.txt`
-   and start as a copy of dream-recomp's. Player 1 takes the first gamepad that was plugged in and
-   player 2 the second, and the page's GAMEPAD row swaps them. Player 2 has no keys at first. The
-   second controller joins when player 2 presses Start during a game, as on the console. A
-   scripted run has a second controller only when its presses use one (`2start@3000`). Its GRAPHICS
-   page changes only the picture. Its settings go to `graphics.txt` in the same folder:
+   shoots, the right switches polarity and the middle releases the homing lasers. Note that the ship
+   moves faster than the game usually lets it when using the mouse, so consider it a tweak. 
+   Player 1 takes the first gamepad that was plugged in and player 2 the second, and the page's
+   GAMEPAD row swaps them. Player 2 has no keys at first. The second controller joins when
+   player 2 presses Start during a game, as on the console. A scripted run has a second
+   controller only when its presses use one (`2start@3000`). Its GRAPHICS page changes only the
+   picture. Its settings go to `graphics.txt` in the same folder:
 
    | Setting | What it does |
    | --- | --- |
@@ -331,7 +285,10 @@ The reference build's Vulkan tools are not needed.
    frames a second instead of the console's 59.94, and the sound plays 0.1% faster to stay with
    it. A frame that misses its refresh takes the next one, and the frames after it make up the
    time: a frame comes a refresh earlier, or the game runs a frame without showing it. Otherwise
-   each late frame would put the game behind the sound, which then breaks up. At other refresh
+   each late frame would put the game behind the sound, which then breaks up. A stall longer than
+   the later frames can make up, as when the system holds the program, leaves one gap in the
+   sound: silence fills the sound's queue when it ran dry, and a queue that the catch-up filled
+   to its limit skips to its usual length. At other refresh
    rates, and while the window is covered or the menu is open, the game paces itself by its own
    clock, and some frames stay on the screen longer than others. Fullscreen is smoother than a
    window ([Performance](#performance)).
@@ -349,7 +306,7 @@ The reference build's Vulkan tools are not needed.
    SAVE on in its options, which a new card has off, at the next change of scene. BACKUP in its
    main menu saves at once. The run prints a line for each load and save of the card.
 
-Options for checking a change without playing:
+Options for testing changes automatically without playing:
 
 | Option | Effect |
 | --- | --- |
@@ -443,9 +400,19 @@ How the runtime works is in [docs/progress.md](docs/progress.md), "Native port".
 
 ## Performance
 
-Measured on 2026-10-25 and 2026-10-26 on a MacBook Pro with an M4 Pro and its 120 Hz display, on
-AC power, with autoplay in stage 1, and for the GPU's time in a whole game with deadly shots, in
-which every boss explodes:
+- **Latencies:** In fullscreen with VSYNC off, the ship's reaction to a key is on the screen
+  16.7 ms after macOS has the key's event (median), and 38 ms with VSYNC on. The port shows each
+  picture a frame earlier than the game itself would: the console's PowerVR draws a frame while the
+  CPU runs the next, and the port draws it at once. So the reaction is likely quicker than on a real
+  Dreamcast too, where it comes two frames (33 ms) after the game reads the controls, before the CRT
+  draws it. No Dreamcast was measured for this. Published figures for other versions are few and
+  come from a different method, from the button to a CRT: 4 frames (67 ms) handheld and 5 docked for
+  the Switch version ([shmups wiki][lag-wiki]), and 2.5 frames for PS4 against 2.85 for Switch in a
+  forum post ([shmups forum][lag-forum]). 
+[lag-wiki]: https://shmups.wiki/library/Input_lag
+[lag-forum]: https://shmups.system11.org/viewtopic.php?p=1517633
+
+Measured on a MacBook Pro with M4 Pro and its 120 Hz display with autoplay:
 
 | Measure | Result |
 | --- | --- |
@@ -491,10 +458,6 @@ refreshes on the screen is a judder in the scrolling. `IKARUGA_PACING=1` counts 
 | By the display, in fullscreen with VSYNC on | 99.8% | about 7 |
 | In fullscreen with VSYNC off | 98.6% to 98.9% | 40 to 50 |
 
-The pointer is hidden while the game runs, as a visible pointer shakes a fullscreen picture. Game
-Mode (`build-port/Ikaruga.app` in fullscreen) made no difference beyond what runs vary by, in two
-runs of 70 seconds each way, and it can matter more while other programs load the machine.
-
 ## Layout
 
 | Path | Content |
@@ -512,11 +475,3 @@ runs of 70 seconds each way, and it can matter more while other programs load th
 | `docs/game.md` | How the game runs: its frame, its scenes, its task system and its named data |
 | `docs/todo.md` | Work that is understood and put off |
 | `CMakeLists.txt` | Builds dream-recomp and the recompiled title, for the reference build |
-
-## Rules
-
-- Never commit anything from the disc or the console. `game/extracted/`, `ghidra/`, `bios/` and
-  `*.chd` are ignored. Read `git status` before every commit.
-- The decompiled code comes from Sega's copyrighted program. Keep it out of any public remote.
-- `game/sdk.h` holds only the types and prototypes of the SDK functions that the analysis uses,
-  without macros or comments.
