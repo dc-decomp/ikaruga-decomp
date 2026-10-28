@@ -50,10 +50,19 @@ seeds 3,918.
 - macOS with Xcode's command line tools
 - Ghidra 12.2 and JDK 25: `brew install ghidra`
 - SDL3: `brew install sdl3`
-- A checkout of dream-recomp at `../dream-recomp` with its submodules, on the `ikaruga-bringup`
-  branch of [kjyv's fork](https://github.com/kjyv/dream-recomp), built as its README describes,
-  with `dcdisc` installed. `dream-recomp/` in this repository is a symbolic link to it.
 - Python 3.10 or later
+- dream-recomp, the submodule `dream-recomp/`: a commit of the `ikaruga-bringup` branch of
+  [kjyv's fork](https://github.com/kjyv/dream-recomp). Clone this repository with
+  `--recurse-submodules`, or run `git submodule update --init --recursive` in a clone. The
+  analysis runs dream-recomp's `dream-translate` from its `build/`, and the steps below run its
+  `dcdisc` from a virtual environment in its `.venv`. From this repository's directory:
+
+  ```sh
+  cmake -S dream-recomp -B dream-recomp/build
+  cmake --build dream-recomp/build --parallel
+  python3 -m venv dream-recomp/.venv
+  dream-recomp/.venv/bin/pip install -e dream-recomp/tools/dcdisc
+  ```
 
 ## Building
 
@@ -61,10 +70,10 @@ seeds 3,918.
 2. Extract the disc's files into `game/extracted/`, and write its tracks as a GDI:
 
    ```sh
-   ../dream-recomp/.venv/bin/dcdisc extract \
+   dream-recomp/.venv/bin/dcdisc extract \
      "game/disc/Ikaruga (Japan).chd" \
      game/extracted
-   ../dream-recomp/.venv/bin/dcdisc chd2gdi \
+   dream-recomp/.venv/bin/dcdisc chd2gdi \
      "game/disc/Ikaruga (Japan).chd" \
      game/disc
    ```
@@ -257,6 +266,7 @@ refreshes on the screen is a judder in the scrolling. `IKARUGA_PACING=1` counts 
 | `tools/game/` | `stage.py`, which prints a chapter's stage program or a stage script with names |
 | `port/` | The port: guest memory, the machine built from dream-recomp's runtime, the boot ROM's services, Ninja and Kamui, the renderer, the tweaks, the SH-4 interpreter and the differential tests |
 | `decomp/` | The converted game code. Generated, ignored here, a local repository of its own. |
+| `dream-recomp/` | dream-recomp, a submodule at the commit that this repository builds and runs with |
 | `game/` | The title config, the symbol tables and the game's types. `game/extracted/` holds the disc files. |
 | `docs/development.md` | Working on the port: the analysis, names and types, the reference build and the checks |
 | `docs/progress.md` | Status, decisions, measurements and the plan |
