@@ -10,7 +10,6 @@
 // with --unthrottled, the dropped samples are counted rather than played late.
 #pragma once
 
-#include <array>
 #include <atomic>
 #include <cstdint>
 #include <string>
@@ -54,21 +53,6 @@ private:
     std::atomic<bool> ran_dry_{false};  // set on the device's thread
     bool shedding_ = false;             // dropping blocks until the queue is back at its target
     std::string error_;
-};
-
-// The peaks of the AICA's mix above the 16-bit range, brought under it instead of clipped. The gain
-// falls in the 64 samples before a peak, so that the peak stays under the range, and comes back
-// over about 150 ms. A mix below the range passes as it is, 64 samples (1.5 ms) later.
-class Limiter {
-public:
-    void process(int32_t& left, int32_t& right);
-
-private:
-    static constexpr int kAhead = 64;
-    std::array<int32_t, kAhead * 2> delayed_{};
-    std::array<float, kAhead> needs_{};  // the gain that each delayed sample needs
-    int next_ = 0, lowered_ = 0;        // lowered_: the needs below 1
-    float gain_ = 1.0f;
 };
 
 }  // namespace render

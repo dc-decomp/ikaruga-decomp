@@ -19,6 +19,7 @@
 #include "decomp.h"
 #include "disc.h"
 #include "dream/runtime/aica/aica.h"
+#include "dream/runtime/aica/limiter.h"
 #include "dream/runtime/maple/maple.h"
 #include "dream/runtime/mem/dc_memory.h"
 #include "dream/runtime/system.h"
@@ -359,7 +360,7 @@ int main(int argc, char** argv) {
     // clipped peaks distort the explosions. Half the level fits all but the largest explosions,
     // whose peaks reach four times the range, and the limiter brings those under it.
     hw::aica().mixer.headroom = 1;
-    static render::Limiter limiter;
+    static dream::aica::Limiter limiter;
     hw::aica().mixer.before_clamp = [](int32_t& l, int32_t& r) { limiter.process(l, r); };
     hw::aica().on_sample = [&](int16_t l, int16_t r) {
         sound_hash = (sound_hash ^ (uint32_t{static_cast<uint16_t>(l)} | uint32_t{static_cast<uint16_t>(r)} << 16)) *
