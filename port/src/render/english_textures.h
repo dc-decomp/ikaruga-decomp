@@ -1,7 +1,7 @@
 // ENGLISH TEXT for the textures that hold Japanese words as pictures: the choice of the game mode
-// and of the difficulty, and the motto at the start of a game. The renderer knows each by the hash
-// of its bytes in video memory (gpu_metal.mm), and English goes into the texels that the game draws
-// each phrase from.
+// and of the difficulty, the motto, the chapters' cards, the final chapter, the ending and the
+// tutorial. The renderer knows each by the hash of its bytes in video memory (gpu_metal.mm), and
+// English goes into the texels that the game draws each phrase from.
 #pragma once
 
 #include <cstdint>

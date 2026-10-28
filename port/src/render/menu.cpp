@@ -43,7 +43,7 @@ constexpr TweakRow kTweakRows[] = {
      "A KILL WITH THE ENEMY'S OWN COLOR, AND ON HARD AFTER EVERY KILL."},
     {"ENGLISH TEXT", &Tweaks::english,
      "THE GAME'S JAPANESE IN ENGLISH: THE MENUS AND THEIR HELP, THE MESSAGES,\n"
-     "THE MOTTO, THE CHAPTERS' CARDS, THE LAST CHAPTER'S WORDS AND THE ENDING."},
+     "THE CARDS AND WORDS OF THE STORY, THE TUTORIAL AND THE CHARACTERS' PAGES."},
 };
 
 // One step of a setting from `low` to `high`: Left and Right stop at the ends, and Return goes

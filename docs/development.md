@@ -234,6 +234,13 @@ hash of each texture's bytes in video memory. To find a texture and its phrases:
    with `RENDER_VIEW_VERTICES=1 render-view DUMP OUT.png --list`. The u and v of a draw give the
    texels of each piece of a phrase.
 
+The file has a building block for each way that the game draws words. A phrase is one line across
+pieces, and a block holds lines in one piece. A paragraph is a block with a piece to its right, which
+goes on with the block's first lines, as in the tutorial. A caption is a column of lines in a
+picture, over the art, as on the characters' pages. It erases the Japanese from the art first.
+Words that show only for a moment are easier to find in display lists dumped every 30 frames: a
+throwaway change to `IKARUGA_DUMP_TA` in `port/src/main.cpp` does it.
+
 ## Variables
 
 These variables show what a run does:
