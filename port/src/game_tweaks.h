@@ -10,6 +10,8 @@ namespace tweaks {
 render::Tweaks from_environment();
 
 void apply(const render::Tweaks& t);
+// The tweaks of the last apply(), for the game functions that the port wraps.
+const render::Tweaks& current();
 
 // Moves player 1's ship, while in play, by (dx, dy) in the 640x480 picture: the moved point's ray
 // through the stage's camera meets the ship's plane. The game's bounds still hold.

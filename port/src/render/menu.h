@@ -53,8 +53,8 @@ private:
     // vsync, Metal's HUD, and BACK.
     static constexpr int kScale = 0, kBloom = 1, kAnisotropy = 2, kFullscreen = 3, kVsync = 4, kHud = 5,
                          kGraphicsBack = 6, kGraphicsRows = 7;
-    // The tweaks page's rows: one for each switch, and BACK.
-    static constexpr int kLives = 0, kCharge = 1, kBullets = 2, kPressStart = 3, kTweaksBack = 4, kTweaksRows = 5;
+    // The tweaks page's rows: one for each switch (kTweakRows in menu.cpp), and BACK.
+    static constexpr int kTweaksBack = 8, kTweaksRows = 9;
 
     int rows() const;
     // The row at a point of the last draw(), or -1, and whether a row's value steps with Left and

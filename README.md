@@ -3,8 +3,8 @@
 A native macOS port of Ikaruga, built from a decompilation of its Dreamcast version (Japan,
 T38706M V1.002). The game's machine code is decompiled into C++, which the build compiles for the
 Mac. A renderer of its own draws the picture with Metal, and SDL3 gives the window, the sound
-output and the controllers. The sound chip, its ARM7 and some of the console's other hardware are
-still emulated, by dream-recomp's runtime ([Native build](#native-build)).
+output and the controllers. The sound chip, its ARM7 and a few other parts of the console are
+still emulated, by dream-recomp's runtime ([How it works](#how-it-works)).
 
 Nothing in this repository contains game data or Sega's software: no disc image, no boot ROM and
 no Katana SDK. You supply the disc image of a copy of the game that you own.
@@ -16,387 +16,173 @@ no Katana SDK. You supply the disc image of a copy of the game that you own.
 * Very smooth and solid 60 fps: no jitters, no slowdowns (likely smoother than on real hardware)
 * up to 4k resolution, anisotropic filtering for best rendering quality
 * Optional mouse mode for a more direct game experience
-
-- **Mods and tweaks.** Infinite lives, infinite laser charge, half the bullets and no blinking
-  PRESS START on the menu's MODS AND TWEAKS page. The game's code is readable C++, which later mods
-  can change.
+* Mods and tweaks: infinite lives and laser charge, half the bullets, an instant polarity switch,
+  no music, no bullets from destroyed enemies, English text and more, on the menu's MODS AND
+  TWEAKS page. The game's code is readable C++, which later mods can change.
 
 [Performance](#performance) gives the measurements.
-
 
 ## How it works
 
 Ghidra decompiles the boot executable `1ST_READ.BIN` into one C file per function. Ghidra's stock
 SH-4 language gets the Dreamcast FPU code wrong, so this repository builds a patched language
-first. [docs/progress.md](docs/progress.md) records what was patched, and why.
+first. `tools/decomp/convert.py` turns the C into C++ that runs on the host, with the console's
+memory as an array that the C++ reads and writes. [docs/progress.md](docs/progress.md) records what
+was patched and converted, and why.
 
-[dream-recomp](../dream-recomp) supplies two things:
+The port gives the game what the console and its system software gave it:
 
-- Its function discovery seeds Ghidra. Ghidra alone finds 2,708 functions, and with the seeds it
-  finds 3,918.
-- Later, its recompiled build is the reference that each hand-cleaned function is tested against.
-  See the plan in [docs/progress.md](docs/progress.md).
+- **Its own:** the PowerVR's registers and video timing, the tile accelerator's input and a
+  renderer in Metal, the GD-ROM and its file system, the boot ROM's services, the memory card, the
+  controllers, and the SDK's graphics libraries Ninja and Kamui as native code. An SH-4
+  interpreter runs the few functions that stay machine code, and tests the C++ against the machine
+  code.
+- **From dream-recomp's runtime:** the memory map and the timing of the console's events, Holly's
+  interrupt registers, the SH-4's DMA channel and G2's DMA, and the AICA with its ARM7, which plays
+  the sound. The game's own sound library runs as decompiled code and talks to this AICA.
+
+[dream-recomp](https://github.com/phobos665/dream-recomp) also gives the tools: `dcdisc` reads the
+disc, and its function discovery seeds Ghidra, which alone finds 2,708 functions and with the
+seeds 3,918.
 
 ## Requirements
 
+- macOS with Xcode's command line tools
 - Ghidra 12.2 and JDK 25: `brew install ghidra`
-- A checkout of dream-recomp at `../dream-recomp`, built as its README describes, with `dcdisc`
-  installed. `dream-recomp/` in this repository is a symbolic link to it.
+- SDL3: `brew install sdl3`
+- A checkout of dream-recomp at `../dream-recomp` with its submodules, on the `ikaruga-bringup`
+  branch of [kjyv's fork](https://github.com/kjyv/dream-recomp), built as its README describes,
+  with `dcdisc` installed. `dream-recomp/` in this repository is a symbolic link to it.
 - Python 3.10 or later
 
-## Steps
+## Building
 
 1. Put your disc image at `game/disc/Ikaruga (Japan).chd`.
-2. Extract the disc's files into `game/extracted/`:
+2. Extract the disc's files into `game/extracted/`, and write its tracks as a GDI:
 
    ```sh
-   ../dream-recomp/.venv/bin/dcdisc extract "game/disc/Ikaruga (Japan).chd" game/extracted
+   ../dream-recomp/.venv/bin/dcdisc extract \
+     "game/disc/Ikaruga (Japan).chd" \
+     game/extracted
+   ../dream-recomp/.venv/bin/dcdisc chd2gdi \
+     "game/disc/Ikaruga (Japan).chd" \
+     game/disc
    ```
 
-3. Analyze and decompile. This takes about seven minutes:
+3. Analyze and decompile. This takes about ten minutes, and the first run also builds the patched
+   language:
 
    ```sh
    tools/ghidra/analyze.sh
    ```
 
-   After a change to `tools/ghidra/ExportDecompiled.java` only, `tools/ghidra/analyze.sh --export`
-   writes the C again from the analyzed project in about 20 seconds. To check such a change on a
-   few functions first, set `EXPORT_ONLY=8c0a9664,...` and run the script into another directory,
-   because `--export` deletes `ghidra/out/c` first. The saved project does not give quite the C of
-   a full run (some functions decompile differently), so use `--export` to look at a change and a
-   full run for the C that you convert.
-
-The first run also builds and installs the patched language. To rebuild it by hand, run
-`tools/ghidra/build_language.py`. The names of the SDK functions that the game links are committed
-in `game/symbols.tsv` and `game/globals.tsv`, and their prototypes and types in `game/sdk.h`.
-
-## Reference build
-
-The reference build is dream-recomp's recompiled program. It needs MoltenVK, the Vulkan loader
-and headers, `glslc` and SDL3:
-
-```sh
-brew install molten-vk vulkan-loader vulkan-headers shaderc sdl3
-```
-
-1. Configure a development build. It runs untranslated code in an interpreter:
+4. Convert the C to C++. This writes `decomp/gen/`. The code there is derived from the game, so
+   `decomp/` is ignored here and is a local repository of its own:
 
    ```sh
-   cmake -S . -B build -DDREAM_DEV_INTERPRETER=ON -DDREAM_BUILD_TESTS=OFF
+   python3 tools/decomp/convert.py
    ```
 
-2. Build the launcher:
-
-   ```sh
-   cmake --build build --target ikaruga_boot --parallel
-   ```
-
-3. Run it in a window:
-
-   ```sh
-   build/game/ikaruga_boot \
-     --config game/ikaruga.toml \
-     --window \
-     --bios bios/dc_bios.bin \
-     --vmu runs/ikaruga.vmu
-   ```
-
-   `--bios` takes your 2 MB Dreamcast boot ROM image. The game draws its system text, such as
-   the memory-card notices, with the ROM's font. Without it, that text is blank. The BIOS code does
-   not run: dream-recomp answers the BIOS calls natively. Put the image in `bios/`, which git
-   ignores. Like the disc, you supply it yourself.
-
-4. To find entry points that discovery misses, run it headless with `--suggest-config`:
-
-   ```sh
-   build/game/ikaruga_boot \
-     --config game/ikaruga.toml \
-     --no-audio \
-     --rtc-seed 1 \
-     --max-seconds 30 \
-     --suggest-config runs/suggest.toml
-   ```
-
-Read each suggestion before you add it to `game/ikaruga.toml`. The method is in
-`dream-recomp/docs/per-game-bring-up.md`.
-
-5. A release build has no interpreter and stops at the first code that is not translated. Build it
-   in its own directory:
-
-   ```sh
-   cmake -S . -B build-release -DDREAM_DEV_INTERPRETER=OFF -DDREAM_BUILD_TESTS=OFF
-   cmake --build build-release --target ikaruga_boot --parallel
-   ```
-
-6. To check that a change did not alter what the game does, capture the regression gate before and
-   after the change. A capture takes about 35 seconds and goes to `.regress/`:
-
-   ```sh
-   tools/reference/gate.py capture before
-   tools/reference/gate.py capture after
-   tools/reference/gate.py compare before after
-   ```
-
-   The gate runs two scenarios: `boot` without input, and `play`, which presses Start and A into
-   stage 1. A changed write hash must be understood before the work continues.
-
-Without input, the game waits on its save-file screen. Press Start to continue.
-
-## Naming functions and data
-
-Names live in two files. Ghidra applies both on each run of `tools/ghidra/analyze.sh`, and the
-reference build uses `game/symbols.tsv`.
-
-| File | Content |
-| --- | --- |
-| `game/symbols.tsv` | Function names |
-| `game/globals.tsv` | Data names. Ghidra makes labels from them, never functions. |
-
-Each row is an address, a name and a source, separated by tabs. Either RAM spelling of the address
-works (`0x0c013958` or `0x8c013958`).
-
-1. When you know what a function does, add a row with the source `user`:
-
-   ```text
-   0x0c013958	queryLastTextureDmaDone	user
-   ```
-
-2. Run `tools/ghidra/analyze.sh`. The new name shows in the function's file and at each call.
-3. Rebuild the reference build to use the name there too.
-4. Before you commit, compare a whole game of the native build before and after the change, with
-   `IKARUGA_STREAMS` as the native build's section shows. A name or a type changes Ghidra's whole
-   analysis. Its guesses of types elsewhere can shift, and with them the C++ of functions far from
-   the name.
-
-The SDK functions' rows have a source that starts with `sdk-`. Where a `user` row and an SDK row
-have the same address, the `user` row wins.
-
-## Output
-
-| Path | Content |
-| --- | --- |
-| `ghidra/out/c/<address>.c` | One decompiled function per file |
-| `ghidra/out/c/index.tsv` | Address, name, size and decompile result of each function |
-| `ghidra/out/functions.json` | The function list |
-| `ghidra/project/` | The Ghidra project. Open it in the Ghidra GUI to rename and retype. |
-
-Ghidra keeps its settings, its cache and the patched language under `ghidra/home/`. The scripts
-need no write access outside this directory.
-
-## Native build
-
-The native build is the decompiled game, compiled for the host. The game code is the C++ that
-the converter writes from Ghidra's output. It draws with
-its own renderer in Metal, in an SDL3 window that also reads the keyboard and gamepads and plays
-the sound. For the rest of the console's hardware it links dream-recomp's runtime library: the
-memory map and registers, the interrupt controllers, the video timing, G2 DMA, Maple and the AICA
-with its ARM7. The PowerVR's registers and the tile accelerator's input are the port's own. These
-stand in for the hardware until the SDK's graphics and sound libraries are replaced (stage 4 of the
-plan in [docs/progress.md](docs/progress.md)). The AICA's final mix keeps one bit of headroom, as
-MAME's does. 
-
-It needs dream-recomp at `../dream-recomp` with its submodules, SDL3 and Xcode's command line tools.
-The reference build's Vulkan tools are not needed.
-
-1. Run the analysis (`tools/ghidra/analyze.sh`). It writes the C and, next to each function, the
-   types and storage the converter needs.
-2. Convert the C to C++:
-
-   ```sh
-   tools/decomp/convert.py
-   ```
-
-   This writes `decomp/gen/`. The code there is derived from the game: `decomp/` is ignored here
-   and is a local repository of its own. Put a hand-corrected function into `decomp/fix/`, and the
-   converter does not generate it again.
-3. Write the disc's tracks as a GDI once:
-
-   ```sh
-   dcdisc chd2gdi "game/disc/Ikaruga (Japan).chd" game/disc
-   ```
-
-4. Build and run:
+5. Build:
 
    ```sh
    cmake -S port -B build-port -DCMAKE_BUILD_TYPE=Release
    cmake --build build-port
-   build-port/ikaruga --frames 600
    ```
 
-5. Play in a window, with the boot ROM for the system font:
+The build makes `build-port/Ikaruga.app` and the same program as `build-port/ikaruga`.
+[docs/development.md](docs/development.md) describes the analysis in more detail, the names and
+types, and the checks for a change.
 
-   ```sh
-   build-port/ikaruga \
-     --window \
-     --bios bios/dc_bios.bin
-   ```
+## Playing
 
-   A window that is not scripted is a played run. It finds the disc as `--disc` names it, at
-   `game/disc/Ikaruga (Japan).gdi`, or as `disc.txt` names it. Without one, it asks for the disc's
-   `.gdi` in an open dialog and keeps the answer in `disc.txt`. Every run reads the game's program
-   and `IP.BIN` from the disc, unless `--boot` names a program, so it needs no `game/extracted`.
-   Without `--bios`, a played run takes the boot ROM image `dc_bios.bin` from the settings folder,
-   or `bios/dc_bios.bin`. Without an image, macOS's Hiragino Sans draws the game's Japanese text,
-   which the boot ROM's font would. Its memory card is the folder `saves` next to the settings, and its first
-   run copies the working directory's `saves` there, which stays as it is. A played run shows its
-   errors in a message box. `disc.txt`, `saves`, `dc_bios.bin` and the files below go to
-   `~/Library/Application Support/ikaruga/ikaruga`.
+Start `build-port/Ikaruga.app` from Finder, or `build-port/ikaruga --window` from a terminal.
 
-   Escape or a gamepad's back button opens the menu, and the game stops while it is open.
-   With MOUSE on the CONTROLLER page, the mouse moves player 1's ship while it
-   is in play and player 1 plays on the keyboard, within the game's bounds. A press on
-   player 1's gamepad gives the ship back to the gamepad until the next key. The left button
-   shoots, the right switches polarity and the middle releases the homing lasers. Note that the ship
-   moves faster than the game usually lets it when using the mouse, so consider it a tweak. 
-   Player 1 takes the first gamepad that was plugged in and player 2 the second, and the page's
-   GAMEPAD row swaps them. Player 2 has no keys at first. The second controller joins when
-   player 2 presses Start during a game, as on the console. A scripted run has a second
-   controller only when its presses use one (`2start@3000`). Its GRAPHICS page changes only the
-   picture. Its settings go to `graphics.txt` in the same folder:
+A window that is not scripted is a played run. It takes the disc that `--disc` names, else the one
+that `disc.txt` names. Without one, it asks for the disc's `.gdi` in an open dialog and keeps the
+answer in `disc.txt`. It reads the game's program and `IP.BIN` from the disc. The game draws its
+system text, such as the memory card's notices, with the boot ROM's font: a played run takes the
+boot ROM image `dc_bios.bin` from the settings folder or from `bios/`, or the one that `--bios`
+names. Without an image, macOS's Hiragino Sans draws that text. Its memory card is the folder
+`saves` in the settings folder, which its first run copies from the working directory's `saves`. A
+played run shows its errors in a message box. `disc.txt`, `saves`, `dc_bios.bin` and the settings
+go to `~/Library/Application Support/ikaruga/ikaruga`.
 
-   | Setting | What it does |
-   | --- | --- |
-   | RESOLUTION | The size that the game is drawn at, from 1X (640x480) to 6X (3840x2880). The window averages a larger picture over each of its pixels, which smooths the edges as supersampling does. The page shows the size of the picture in the window. `--scale N` sets the resolution for one run. |
-   | BLOOM | OFF, LOW or HIGH. The brightest parts of the picture glow. F12's screenshots show the glow. |
-   | ANISOTROPIC FILTERING | OFF or 2X to 16X. Textures seen at a slant stay sharper. The camera looks at the stages almost straight on, so the picture changes little: at 16X, 0.5% of the pixels or fewer in the test frames. |
-   | FULLSCREEN | ON or OFF. The window's green button and Control-Command-F change it too. |
-   | VSYNC | OFF or ON, OFF at first. Off works only in fullscreen: the window server then shows each picture at once, without waiting for the display's refresh. That takes about 21 ms off the latency, and the picture can tear: a horizontal line where two pictures meet, for one refresh. At 120 Hz the two pictures differ by one frame of scrolling, and the line is hard to see. In a window the window server waits for the refresh anyway. |
-   | METAL HUD | ON or OFF. Metal's performance HUD in a corner of the window: the frame rate, the frame times and the GPU's time. A scripted run has no HUD. |
+In fullscreen, macOS turns on Game Mode for `Ikaruga.app`, whose Info.plist declares it a game.
+Game Mode gives the game priority on the CPU and the GPU. The plain `build-port/ikaruga` gets no
+Game Mode.
 
-   [Performance](#performance) gives what each resolution costs.
+### Controls and the menu
 
-   The MODS AND TWEAKS page switches changes to the game, which go to `tweaks.txt`:
+The arrow keys are the stick. Z shoots, X switches polarity, A releases the homing lasers and
+Return is Start. A gamepad works by button position. Escape, F1 or a gamepad's back button opens
+the menu, and the game stops while it is open. The mouse works in the menu too.
 
-   | Tweak | What it does |
-   | --- | --- |
-   | INFINITE LIVES | A player in the game keeps at least 2 lives. |
-   | INFINITE LASER CHARGE | The energy for the homing lasers stays full, so every release fires 12 lasers. In the prototype mode, where the shots spend energy too, it stays at 999. |
-   | HALF THE BULLETS | Every second bullet ends in the frame it comes in, so the enemies fire half as many. Fewer bullets also give less energy to absorb. |
-   | HIDE PRESS START | The blinking PRESS START on the side of a player who is not in the game goes away. GAME OVER and PLEASE WAIT stay. |
+The menu's CONTROLLER page sets the keys and the gamepad of each of two players. Player 1 takes the
+first gamepad that was plugged in and player 2 the second, and the page's GAMEPAD row swaps them.
+Player 2 has no keys at first. The second controller joins when player 2 presses Start during a
+game, as on the console. With MOUSE on, the mouse moves player 1's ship while it is in play and
+player 1 plays on the keyboard, within the game's bounds. A press on player 1's gamepad gives the
+ship back to the gamepad until the next key. The left button shoots, the right switches polarity
+and the middle releases the homing lasers. The ship moves faster with the mouse than the game
+usually lets it, so consider it a tweak.
 
-   The tweaks change the game's data at each vertical blank (`port/src/game_tweaks.cpp`), not its
-   code. A scripted run (autoplay, `--replay-input`, `--press`, `--frames` or screenshots) does not
-   read or write `graphics.txt` and `tweaks.txt` and ignores MOUSE, so the settings do not change a
-   check. QUIT in the menu ends the game. F10 shows the frame rate, F11 writes the last display list
-   for `render-view` and F12 writes a screenshot.
+QUIT in the menu ends the game. F10 shows the frame rate, F11 writes the last display list for
+`render-view` and F12 writes a screenshot.
 
-   At 60 Hz or 120 Hz the display paces the game, so that the scrolling stays smooth. Each frame
-   stays on the screen for one refresh at 60 Hz and for two at 120 Hz. The game then runs at 60.00
-   frames a second instead of the console's 59.94, and the sound plays 0.1% faster to stay with
-   it. A frame that misses its refresh takes the next one, and the frames after it make up the
-   time: a frame comes a refresh earlier, or the game runs a frame without showing it. Otherwise
-   each late frame would put the game behind the sound, which then breaks up. A stall longer than
-   the later frames can make up, as when the system holds the program, leaves one gap in the
-   sound: silence fills the sound's queue when it ran dry, and a queue that the catch-up filled
-   to its limit skips to its usual length. At other refresh
-   rates, and while the window is covered or the menu is open, the game paces itself by its own
-   clock, and some frames stay on the screen longer than others. Fullscreen is smoother than a
-   window ([Performance](#performance)).
+### Graphics
 
-   The build also makes `build-port/Ikaruga.app`, the same program in an app bundle whose
-   Info.plist declares it a game. In fullscreen, macOS turns on Game Mode for it, which gives the
-   game priority on the CPU and the GPU, and the menu bar shows a game controller. The plain
-   `build-port/ikaruga` gets no Game Mode. Started from Finder or with `open`, without options, the
-   app plays in a window as a played run, which finds the disc and the card as above.
+The GRAPHICS page changes only the picture. Its settings go to `graphics.txt`:
 
-   `--saves DIR` names the memory card, a directory (default `saves` in the working directory, or
-   for a played run the settings folder's `saves`). The game's file in it,
-   `IKARUGA_DATA.VMS`, is the image the game writes to a Visual Memory unit, in the VMS layout
-   that Dreamcast save tools read. As on the console, the game saves on its own only with AUTO
-   SAVE on in its options, which a new card has off, at the next change of scene. BACKUP in its
-   main menu saves at once. The run prints a line for each load and save of the card.
-
-Options for testing changes automatically without playing:
-
-| Option | Effect |
+| Setting | What it does |
 | --- | --- |
-| `--press start@600,a@700-900` | Holds a button for 8 frames from each frame given, or over a range of frames. A `2` before the button, as in `2start@3000`, presses it on a second controller, which the run then has. |
-| `--screenshot-at 300,650` | Writes the frames drawn at these frames, as `ikaruga-300.ppm` and so on |
-| `--wav FILE` | Records the sound |
-| `--unthrottled` | Runs the window as fast as the host can |
-| `--record-input FILE` | Writes the controller state of each frame where it changes |
-| `--replay-input FILE` | Plays a recording back instead of the controls. A recording only replays the same game in the build that made it: the reference build's frames do not line up with the port's. |
+| RESOLUTION | The size that the game is drawn at, from 1X (640x480) to 6X (3840x2880). The window averages a larger picture over each of its pixels, which smooths the edges as supersampling does. The page shows the size of the picture in the window. `--scale N` sets the resolution for one run. |
+| BLOOM | OFF, LOW or HIGH. The brightest parts of the picture glow. F12's screenshots show the glow. |
+| ANISOTROPIC FILTERING | OFF or 2X to 16X. Textures seen at a slant stay sharper. The camera looks at the stages almost straight on, so the picture changes little: at 16X, 0.5% of the pixels or fewer in the test frames. |
+| FULLSCREEN | ON or OFF. The window's green button and Control-Command-F change it too. |
+| VSYNC | OFF or ON, OFF at first. Off works only in fullscreen: the window server then shows each picture at once, without waiting for the display's refresh. That takes about 21 ms off the latency, and the picture can tear: a horizontal line where two pictures meet, for one refresh. At 120 Hz the two pictures differ by one frame of scrolling, and the line is hard to see. In a window the window server waits for the refresh anyway. |
+| METAL HUD | ON or OFF. Metal's performance HUD in a corner of the window: the frame rate, the frame times and the GPU's time. |
 
-To find a function whose C++ does not do what the game's machine code does, run with
-`IKARUGA_DIFF=1`. The port then runs the first call of each function twice, once as machine code
-on its SH-4 interpreter and once as C++, and prints each function whose results differ:
+At 60 Hz or 120 Hz the display paces the game, so that the scrolling stays smooth. Each frame stays
+on the screen for one refresh at 60 Hz and for two at 120 Hz. The game then runs at 60.00 frames a
+second instead of the console's 59.94, and the sound plays 0.1% faster to stay with it. A frame
+that misses its refresh takes the next one, and the frames after it make up the time: a frame
+comes a refresh earlier, or the game runs a frame without showing it. Otherwise each late frame
+would put the game behind the sound, which then breaks up. A stall longer than the later frames
+can make up, as when the system holds the program, leaves one gap in the sound: silence fills the
+sound's queue when it ran dry, and a queue that the catch-up filled to its limit skips to its
+usual length. At other refresh rates, and while the window is covered or the menu is open, the
+game paces itself by its own clock, and some frames stay on the screen longer than others.
+Fullscreen is smoother than a window ([Performance](#performance)).
 
-```sh
-env IKARUGA_DIFF=1 \
-  build-port/ikaruga \
-  --frames 3200 \
-  --press start@600,a@700,start@1200,a@1300,start@2000,a@2100
-```
+### Mods and tweaks
 
-`IKARUGA_DIFF_ONLY=0x8c06a7a4` tests one function, `IKARUGA_DIFF_ONLY=0x8c06a7a4,0x8c0196fc` two. `IKARUGA_DIFF_FROM=54500` starts the tests at
-frame 54,500, so that the functions get new tests in a later stage. The test cannot run a call
-inside another tested call, so the report names the functions that the run calls only there: test
-these alone with `IKARUGA_DIFF_ONLY`. [docs/progress.md](docs/progress.md) describes what the test
-can and cannot find.
+The MODS AND TWEAKS page switches changes to the game, which go to `tweaks.txt`. The page shows a
+line about the chosen tweak.
 
-To check that a change still lets the game reach its milestones, whatever it does to the timing, run
-`tools/port/check.py`. It plays the whole game with `IKARUGA_AUTOPLAY`, in about 15 minutes. It
-fails when a stage, a boss or the ending does not come by a given frame, when the game stops
-drawing, when a boot does not get back what the game saved after the ending, or when the soft
-reset (A, B, X, Y and Start) does not end the game. A recording cannot check this: it replays
-only in the build that made it. `--frames 18000` checks only the
-first two milestones, in two minutes. `--pictures DIR` also takes screenshots a fixed time after
-some milestones and compares them with the set that `--keep` kept. The pictures come from the
-game, so keep `DIR` outside the repository.
-
-To compare two builds, play a whole autoplay game with each and compare the lines that
-`IKARUGA_STREAMS` writes. Two builds that play the same game give the same lines: the same
-display lists, registers, video memory and sound. The first line that differs shows when the two
-games part:
-
-```sh
-env IKARUGA_AUTOPLAY=1 \
-  IKARUGA_STREAMS=before.txt \
-  build-before/ikaruga \
-  --unthrottled \
-  --frames 122000
-```
-
-Do this for each change of names or types, and for each change of the converter or the scripts.
-A naming batch once changed how a float was stored in three functions, and the game looked and
-sounded different from stage 3 on.
-
-To check a change to the renderer in seconds, run `tools/port/render_check.py`. It draws a set
-of display lists with `render-view` and compares each picture with the one that `--keep` kept.
-It prints the mean difference and the number of pixels that differ by more than 16 in a channel.
-`--make` dumps the set first: nine display lists from the title to the name entry, into
-`runs/render-set`. Build `render-view` with `cmake --build build-port --target render-view`.
-`render-view DUMP OUT.png --bloom 2` draws a dump with the bloom, `--anisotropy 16` with that
-filtering. `--scale 4 --rescale 1` changes
-the scale after the first render, as the GRAPHICS page does, and writes the scaled framebuffer to
-`OUT.png.scaled.png`. The render after the change must equal a render at the new scale.
-
-These variables show what a run does:
-
-| Variable | Effect |
+| Tweak | What it does |
 | --- | --- |
-| `IKARUGA_PEEK=0x8c1d1428:4,...` | Prints the value at each address when it changes, at each vertical blank. The size is 1 (the default), 2 or 4. A 4-byte value is printed as a float too. |
-| `IKARUGA_TWEAKS=lives,charge,bullets,start` | Switches on the tweaks of the menu's MODS AND TWEAKS page, also for a run without a window. |
-| `IKARUGA_LATENCY=1` | The window shows white instead of the game while a key or a button is held, from the frame that reads the press on: the picture in which the game can show its first reaction. At the end the run prints, for each press, the time from the key's event in macOS to the refresh that showed the white picture. A slow-motion camera on the keyboard and the screen adds the keyboard's and the panel's delays. |
-| `IKARUGA_PACING=1` | Prints at the end of a window run how many refreshes each picture stayed on the screen, how many pictures came later than asked, how many frames went without a picture to make up for late ones, and how long before its refresh a frame started. A covered window shows no pictures, so keep it in front. |
-| `IKARUGA_POKE=0x8c1d13ec=2,...` | Writes these bytes at each vertical blank. `0x8c1d13ec=2` keeps two lives, so a replay gets past a section where the recording died. |
-| `IKARUGA_DUMP=2400,3000,DIR` | Writes main RAM at these frames, as `DIR/ram-2400.bin` and so on |
-| `IKARUGA_LOG_CALLS=0x8c079384,...` | Prints each call of these functions, with the frame and the argument registers |
-| `IKARUGA_WATCH_CALLS=0x8c08fe04,...` | Prints the frame of the first call of each of these functions, also with `IKARUGA_INTERPRET_ALL` |
-| `IKARUGA_SHOTS_AFTER=0x8c08fe04+600,...` | In a window, takes a screenshot 600 frames after the first call of the function. The file is the `--screenshot-path` with `-8c08fe04+600` added to its name. |
-| `IKARUGA_AUTOPLAY=1` | Plays without a recording: Start and A in turns through the menus, then A held with two lives kept |
-| `IKARUGA_UNKNOWNS=60` | Lists 60 of the registers that the C++ read without a value, instead of 30 |
-| `IKARUGA_LOG_FILES=1` | Prints each call of the native file system: opens, directories and reads, with their results |
-| `IKARUGA_UNMAPPED=1` | Prints the active functions at the first access to each address that nothing maps |
-| `IKARUGA_DUMP_TA=950,FILE` | Writes the first display list from that frame on, with video memory and the PVR registers, as the reference build's `--dump-ta` does. `render-view FILE OUT.png` draws it, and `dream_render_view FILE --stats` or `--polygons` lists it. |
-| `IKARUGA_CALLED=FILE` | Writes each decompiled function that the run entered, with the frame of its first call and its number of calls. Functions on the interpreter are not in it. |
-| `IKARUGA_HW_USERS=FILE` | Writes the registers that each decompiled function read and wrote, and where its store-queue flushes went. Interpreted code counts for the C++ function that called it. |
-| `IKARUGA_STREAMS=FILE` | Writes a line for each render: its number, the frame, the display list's words, and hashes of the display list, of the registers the renderer reads, of video memory, of the decoded display list and of the sound so far. Two builds that play the same game give the same lines. A change that moves the timing changes them. The run's summary ends with the hash of the whole sound. |
-| `IKARUGA_SH4_PCS=FILE` | Writes, at the end, the interpreted instructions run at each address of the executable: with the symbols, the time each routine takes itself |
-| `IKARUGA_SH4_PROFILE=1` | Prints, at the end, the interpreted instructions per function that the C++ called, nested calls included |
-| `IKARUGA_INTERPRET_ALL=1` | Runs all game code on the SH-4 interpreter, except the functions that the port replaces (`port/replaced.txt`). The boot is slow. |
+| INFINITE LIVES | A player in the game keeps at least 2 lives. |
+| INFINITE LASER CHARGE | The energy for the homing lasers stays full, so every release fires 12 lasers. In the prototype mode, where the shots spend energy too, it stays at 999. |
+| HALF THE BULLETS | Every second bullet ends in the frame it comes in, so the enemies fire half as many. Fewer bullets also give less energy to absorb. |
+| HIDE PRESS START | The blinking PRESS START on the side of a player who is not in the game goes away. GAME OVER and PLEASE WAIT stay. |
+| SWITCH AT ONCE | The polarity changes on the switch's press. In the game, the ship turns over for 14 frames and changes its color halfway, 7 frames after the press, and until then bullets of both colors hit it. The ship also takes no shots and no other switch during the turn. With the tweak, the turn only shows, and the ship shoots and can switch back during it. The attract demo keeps the game's switch, which its recorded input expects. |
+| NO MUSIC | The music is silent, and the sound effects play. The music's sequences still run, at the volume at which the game silences an effect, so the game's timing stays. |
+| NO DEATH BULLETS | A destroyed enemy fires no bullets back at the player who destroyed it. The game fires them (`enemyDeathBullets`) on normal after a kill with the enemy's own color, and on hard after every kill, fewer and slower after a kill with the other color. The attract demo keeps them. |
+| ENGLISH TEXT | The game's Japanese in English: the help of the menus, the settings of CONFIG, and the messages about the memory card, the rankings and the disc, which Hiragino Sans draws where the game would draw its Japanese line (`port/src/text.cpp`). Also the words that the game holds as pictures: the choice of the game mode and the difficulty, the motto at the start of a game, the chapters' cards, the words of the final chapter and the ending, in Hiragino Mincho (`port/src/render/english_textures.cpp`). The game's own English words, such as the menus' items, stay as they are. |
 
-How the runtime works is in [docs/progress.md](docs/progress.md), "Native port".
+Most tweaks change the game's data at each vertical blank (`port/src/game_tweaks.cpp`). The others
+wrap game functions that `port/hooked.txt` lists, and with the tweak off, the wrapper only calls
+the game's function.
+
+### Memory card
+
+`--saves DIR` names the memory card, a directory (default `saves` in the working directory, or for
+a played run the settings folder's `saves`). The game's file in it, `IKARUGA_DATA.VMS`, is the image
+the game writes to a Visual Memory unit, in the VMS layout that Dreamcast save tools read. As on
+the console, the game saves on its own only with AUTO SAVE on in its options, which a new card has
+off, at the next change of scene. BACKUP in its main menu saves at once. The run prints a line for
+each load and save of the card.
 
 ## Performance
 
@@ -408,7 +194,8 @@ How the runtime works is in [docs/progress.md](docs/progress.md), "Native port".
   draws it. No Dreamcast was measured for this. Published figures for other versions are few and
   come from a different method, from the button to a CRT: 4 frames (67 ms) handheld and 5 docked for
   the Switch version ([shmups wiki][lag-wiki]), and 2.5 frames for PS4 against 2.85 for Switch in a
-  forum post ([shmups forum][lag-forum]). 
+  forum post ([shmups forum][lag-forum]).
+
 [lag-wiki]: https://shmups.wiki/library/Input_lag
 [lag-forum]: https://shmups.system11.org/viewtopic.php?p=1517633
 
@@ -431,9 +218,8 @@ blending adds them where no other layer lies around them ([docs/todo.md](docs/to
 
 The game's code and the SDK's graphics functions that it calls run as native code. The window
 queues each picture behind its render on the GPU, so the CPU goes on with the next frame while the
-GPU draws. About half of
-the CPU time that a frame needs without the renderer goes to the sound: dream-recomp's emulation
-of the AICA's mixer, its DSP and its ARM7 ([docs/todo.md](docs/todo.md)).
+GPU draws. About half of the CPU time that a frame needs without the renderer goes to the sound:
+dream-recomp's emulation of the AICA's mixer, its DSP and its ARM7 ([docs/todo.md](docs/todo.md)).
 
 The latency has three parts. Ikaruga reads the controls once a frame, so a press waits up to a
 frame, 8.3 ms on average, and the game moves the ship in that frame already. The game shows each
@@ -464,12 +250,14 @@ refreshes on the screen is a judder in the scrolling. `IKARUGA_PACING=1` counts 
 | --- | --- |
 | `tools/ghidra/` | The analysis pipeline and the language patch |
 | `tools/symbols/` | The tools for the symbol tables |
-| `tools/reference/` | The regression gate for the reference build |
-| `tools/decomp/` | The converter from Ghidra's C to C++ for the native build |
+| `tools/decomp/` | The converter from Ghidra's C to C++ |
+| `tools/port/` | The port's checks, and the list of the game's Japanese lines |
+| `tools/reference/` | The regression gate for dream-recomp's reference build |
 | `tools/game/` | `stage.py`, which prints a chapter's stage program or a stage script with names |
-| `port/` | The native build's runtime: guest memory, the machine built from dream-recomp's runtime, the boot ROM's services, the SH-4 interpreter for Ninja, the differential tests |
+| `port/` | The port: guest memory, the machine built from dream-recomp's runtime, the boot ROM's services, Ninja and Kamui, the renderer, the tweaks, the SH-4 interpreter and the differential tests |
 | `decomp/` | The converted game code. Generated, ignored here, a local repository of its own. |
-| `game/` | The title config and the symbol tables. `game/extracted/` holds the disc files. |
+| `game/` | The title config, the symbol tables and the game's types. `game/extracted/` holds the disc files. |
+| `docs/development.md` | Working on the port: the analysis, names and types, the reference build and the checks |
 | `docs/progress.md` | Status, decisions, measurements and the plan |
 | `docs/native-platform.md` | What the game needs from the platform, and the steps to a native one |
 | `docs/game.md` | How the game runs: its frame, its scenes, its task system and its named data |

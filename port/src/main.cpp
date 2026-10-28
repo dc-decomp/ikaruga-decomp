@@ -68,8 +68,8 @@ size_t load_file(const std::string& path, uint32_t address) {
 void usage() {
     std::fprintf(stderr,
                  "usage: ikaruga [options]\n"
-                 "  --disc FILE.gdi   the disc (default game/disc/Ikaruga (Japan).gdi, else the one a window\n"
-                 "                    asked for)\n"
+                 "  --disc FILE.gdi   the disc (default for a window that is not scripted the one it asked for,\n"
+                 "                    else game/disc/Ikaruga (Japan).gdi)\n"
                  "  --boot FILE       1ST_READ.BIN, descrambled (default the disc's)\n"
                  "  --bios FILE       a boot ROM image, for the system font (optional: else macOS's Hiragino)\n"
                  "  --saves DIR       the memory card's files (default saves, or for a window that is not\n"
@@ -220,10 +220,10 @@ int main(int argc, char** argv) {
     };
     namespace fs = std::filesystem;
     std::error_code ec;
-    // The disc: --disc, else the repository's, else the one that disc.txt next to the bindings
-    // names, which a played run asks for once.
+    // The disc: --disc, else for a played run the one that disc.txt next to the bindings names,
+    // which it asks for once. Other runs take the repository's, or disc.txt's without it.
     bool asked = false;
-    if (!disc_given && !fs::exists(disc, ec)) {
+    if (!disc_given && (playing || !fs::exists(disc, ec))) {
         std::string remembered = render::read_settings(render::settings_path("disc.txt"));
         while (!remembered.empty() && std::isspace(static_cast<unsigned char>(remembered.back())))
             remembered.pop_back();
@@ -583,12 +583,10 @@ int main(int argc, char** argv) {
         }
         for (const auto& [address, value] : pokes)
             guest::store<uint8_t>(address, value);
-        render::Tweaks t = screen ? screen->tweaks() : render::Tweaks{};
-        t.infinite_lives |= env_tweaks.infinite_lives;
-        t.infinite_charge |= env_tweaks.infinite_charge;
-        t.half_bullets |= env_tweaks.half_bullets;
-        t.no_press_start |= env_tweaks.no_press_start;
-        tweaks::apply(t);
+        const render::Tweaks on = (screen ? screen->tweaks() : render::Tweaks{}).either(env_tweaks);
+        tweaks::apply(on);
+        if (screen)
+            screen->gpu().set_english(on.english);
         for (Peek& k : peeks) {
             const int64_t now = k.size == 4   ? guest::load<uint32_t>(k.address)
                                 : k.size == 2 ? guest::load<uint16_t>(k.address)

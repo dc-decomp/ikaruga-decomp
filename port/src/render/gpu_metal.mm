@@ -17,6 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "render/english_textures.h"
 #include "render/gpu.h"
 #include "render/shaders.h"
 #include "render/texture.h"
@@ -179,6 +180,7 @@ struct Gpu::Impl {
     id<MTLCommandBuffer> bloom_passes = nil;        // the last that made `shown`
     unsigned bloom = 0, anisotropy = 1;
     bool hud = true;  // MTL_HUD_ENABLED shows the HUD until set_hud() says otherwise
+    bool english = false;
     // What Core Animation's presented handlers report: the last refresh that showed a picture, the
     // pictures that came after the refresh they asked for, and with IKARUGA_PACING when each picture
     // came on the screen, 0 for one that never did. Each handler holds it, as a handler can come
@@ -503,6 +505,12 @@ struct Gpu::Impl {
             const uint32_t entries = f.pixel == PixelFormat::Palette4 ? 16 : 256;
             h = hash_bytes(reinterpret_cast<const uint8_t*>(palette + f.palette_base), entries * 4, h);
         }
+        // A texture with English counts as another one while ENGLISH TEXT is on, so that switching
+        // it decodes the texture again.
+        const bool english = m.english && has_english(h);
+        const uint64_t content = h;
+        if (english)
+            h = ~h;
         t.used = render;
         if (t.texture && t.hash == h)
             return t.texture;
@@ -523,6 +531,21 @@ struct Gpu::Impl {
             if (!decode_texture(f, level, hw.vram, hw.vram_size, palette, m.texels))
                 break;
             const uint32_t w = std::max(1u, f.width >> level), hh = std::max(1u, f.height >> level);
+            // IKARUGA_DUMP_TEXTURES=DIR: each texture once, as its RGBA8 bytes, named by its hash.
+            static const char* dump = std::getenv("IKARUGA_DUMP_TEXTURES");
+            static std::unordered_map<uint64_t, bool> dumped;
+            if (dump && level == 0 && !dumped[content]) {
+                dumped[content] = true;
+                char path[512];
+                std::snprintf(path, sizeof path, "%s/%016llx-%ux%u.rgba", dump, static_cast<unsigned long long>(content),
+                              w, hh);
+                if (std::FILE* out = std::fopen(path, "wb")) {
+                    std::fwrite(m.texels.data(), 4, m.texels.size(), out);
+                    std::fclose(out);
+                }
+            }
+            if (english && level == 0)
+                write_english(content, w, hh, m.texels);
             [t.texture replaceRegion:MTLRegionMake2D(0, 0, w, hh) mipmapLevel:level withBytes:m.texels.data()
                          bytesPerRow:w * 4];
         }
@@ -1101,6 +1124,8 @@ void Gpu::set_anisotropy(unsigned samples) {
         impl_->samplers.clear();
     }
 }
+
+void Gpu::set_english(bool on) { impl_->english = on; }
 
 void Gpu::set_hud(bool on) {
     Impl& m = *impl_;

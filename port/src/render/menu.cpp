@@ -23,6 +23,29 @@ std::string shown(const Binding& b) {
 
 const char* on_off(bool on) { return on ? "< ON >" : "< OFF >"; }
 
+// The tweaks page's switches in their order, each with one or two lines about it.
+struct TweakRow {
+    const char* label;
+    bool Tweaks::*value;
+    const char* help;
+};
+constexpr TweakRow kTweakRows[] = {
+    {"INFINITE LIVES", &Tweaks::infinite_lives, "A PLAYER IN THE GAME KEEPS AT LEAST 2 LIVES."},
+    {"INFINITE LASER CHARGE", &Tweaks::infinite_charge, "THE HOMING LASERS' ENERGY STAYS FULL."},
+    {"HALF THE BULLETS", &Tweaks::half_bullets, "EVERY SECOND BULLET ENDS AS IT APPEARS."},
+    {"HIDE PRESS START", &Tweaks::no_press_start, "NO BLINKING PRESS START ON A FREE PLAYER'S SIDE."},
+    {"SWITCH AT ONCE", &Tweaks::instant_switch,
+     "THE COLOR CHANGES ON THE PRESS, NOT HALFWAY THROUGH THE TURN (7 FRAMES).\n"
+     "THE TURNING SHIP SHOOTS, CAN SWITCH BACK, AND IS NEVER OPEN TO BOTH COLORS."},
+    {"NO MUSIC", &Tweaks::no_music, "THE MUSIC IS SILENT, THE SOUND EFFECTS PLAY."},
+    {"NO DEATH BULLETS", &Tweaks::no_death_bullets,
+     "A DESTROYED ENEMY FIRES NO BULLETS BACK. THE GAME FIRES THEM ON NORMAL AFTER\n"
+     "A KILL WITH THE ENEMY'S OWN COLOR, AND ON HARD AFTER EVERY KILL."},
+    {"ENGLISH TEXT", &Tweaks::english,
+     "THE GAME'S JAPANESE IN ENGLISH: THE MENUS AND THEIR HELP, THE MESSAGES,\n"
+     "THE MOTTO, THE CHAPTERS' CARDS, THE LAST CHAPTER'S WORDS AND THE ENDING."},
+};
+
 // One step of a setting from `low` to `high`: Left and Right stop at the ends, and Return goes
 // round.
 unsigned stepped(unsigned value, unsigned low, unsigned high, Menu::Key k) {
@@ -93,7 +116,7 @@ Menu::Result Menu::key(Key k) {
     }
     else if (k == Key::Accept && row_ == kTweaksPage) {
         page_ = Page::Tweaks;
-        row_ = kLives;
+        row_ = 0;
     }
     return Result::Stay;
 }
@@ -195,6 +218,7 @@ Menu::Result Menu::graphics_key(Key k) {
 }
 
 Menu::Result Menu::tweaks_key(Key k) {
+    static_assert(sizeof kTweakRows / sizeof kTweakRows[0] == kTweaksBack);
     if (k == Key::Back || (k == Key::Accept && row_ == kTweaksBack)) {
         page_ = Page::Main;
         row_ = kTweaksPage;
@@ -202,13 +226,9 @@ Menu::Result Menu::tweaks_key(Key k) {
     }
     if (k != Key::Accept && k != Key::Left && k != Key::Right)
         return Result::Stay;
-    bool* value = row_ == kLives     ? &tweaks_.infinite_lives
-                  : row_ == kCharge  ? &tweaks_.infinite_charge
-                  : row_ == kBullets ? &tweaks_.half_bullets
-                  : row_ == kPressStart ? &tweaks_.no_press_start
-                                     : nullptr;
-    if (value) {
-        *value = !*value;
+    if (row_ < kTweaksBack) {
+        bool& value = tweaks_.*kTweakRows[row_].value;
+        value = !value;
         tweaks_changed_ = true;
     }
     return Result::Stay;
@@ -267,7 +287,8 @@ void Menu::draw(Overlay& o, uint32_t width, uint32_t height) const {
     const float unit = std::max(12.0f, static_cast<float>(height) / 40.0f);  // one line's height
     const float panel_w = std::min(static_cast<float>(width) * 0.9f, unit * 30.0f);
     const bool graphics = page_ == Page::Graphics;
-    const float panel_h = unit * (static_cast<float>(rows()) + (graphics ? 6.4f : 4.4f));
+    const bool notes = graphics || page_ == Page::Tweaks;  // two lines under the rows
+    const float panel_h = unit * (static_cast<float>(rows()) + (notes ? 6.4f : 4.4f));
     const float x0 = (static_cast<float>(width) - panel_w) / 2, y0 = (static_cast<float>(height) - panel_h) / 2;
     o.box(x0, y0, panel_w, panel_h, 0xE0101010u);
     x0_ = x0;
@@ -327,21 +348,9 @@ void Menu::draw(Overlay& o, uint32_t width, uint32_t height) const {
         else if (graphics) {
             label = "BACK";
         }
-        else if (r == kLives) {
-            label = "INFINITE LIVES";
-            value = on_off(tweaks_.infinite_lives);
-        }
-        else if (r == kCharge) {
-            label = "INFINITE LASER CHARGE";
-            value = on_off(tweaks_.infinite_charge);
-        }
-        else if (r == kBullets) {
-            label = "HALF THE BULLETS";
-            value = on_off(tweaks_.half_bullets);
-        }
-        else if (r == kPressStart) {
-            label = "HIDE PRESS START";
-            value = on_off(tweaks_.no_press_start);
+        else if (r < kTweaksBack) {
+            label = kTweakRows[r].label;
+            value = on_off(tweaks_.*kTweakRows[r].value);
         }
         else {
             label = "BACK";
@@ -361,6 +370,15 @@ void Menu::draw(Overlay& o, uint32_t width, uint32_t height) const {
         o.text(x0 + unit, y0 + unit * (4.0f + static_cast<float>(rows())), note, text * 0.8f, 0xFFA0A0A0u);
         o.text(x0 + unit, y0 + unit * (4.8f + static_cast<float>(rows())),
                "VSYNC OFF: LESS LATENCY IN FULLSCREEN, BUT THE PICTURE CAN TEAR", text * 0.8f, 0xFFA0A0A0u);
+    }
+    else if (page_ == Page::Tweaks && row_ < kTweaksBack) {
+        const std::string help = kTweakRows[row_].help;
+        const size_t cut = help.find('\n');
+        o.text(x0 + unit, y0 + unit * (4.0f + static_cast<float>(rows())), help.substr(0, cut), text * 0.8f,
+               0xFFA0A0A0u);
+        if (cut != std::string::npos)
+            o.text(x0 + unit, y0 + unit * (4.8f + static_cast<float>(rows())), help.substr(cut + 1), text * 0.8f,
+                   0xFFA0A0A0u);
     }
 }
 

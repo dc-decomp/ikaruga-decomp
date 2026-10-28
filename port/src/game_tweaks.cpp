@@ -5,12 +5,15 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "decomp.h"
 
 namespace tweaks {
 namespace {
+
+render::Tweaks on;  // the tweaks of the last vertical blank, for the wrapped functions below
 
 // The game's data (game/globals.tsv) and the bullets' update functions (game/symbols.tsv).
 constexpr uint32_t kPlayersInGame = 0x8C15C588u;  // bit 0: player 1, bit 1: player 2
@@ -245,11 +248,18 @@ render::Tweaks from_environment() {
         t.infinite_charge = std::strstr(v, "charge") != nullptr;
         t.half_bullets = std::strstr(v, "bullets") != nullptr;
         t.no_press_start = std::strstr(v, "start") != nullptr;
+        t.instant_switch = std::strstr(v, "switch") != nullptr;
+        t.no_music = std::strstr(v, "music") != nullptr;
+        t.no_death_bullets = std::strstr(v, "death") != nullptr;
+        t.english = std::strstr(v, "english") != nullptr;
     }
     return t;
 }
 
+const render::Tweaks& current() { return on; }
+
 void apply(const render::Tweaks& t) {
+    on = t;
     if (t.infinite_lives)
         keep_lives();
     if (t.infinite_charge)
@@ -260,3 +270,99 @@ void apply(const render::Tweaks& t) {
 }
 
 }  // namespace tweaks
+
+namespace game {
+
+// SWITCH AT ONCE (port/hooked.txt). playerMove reads the buttons only while no turn runs, and turns
+// the ship over 14 frames: the color changes at 0x2400, and until then bullets of both colors hit
+// the ship (playerButtons gives it the hit value 's'). With the tweak, the wrapper runs the turn and
+// shows playerMove none, so the buttons work in every frame, and a switch changes the color at once.
+// The attract demo plays the game's own switch, which its recorded input expects.
+void playerMove(gptr<Player> player) {
+    // Each player's turn that changed the color at its start, which the game's turn must not repeat.
+    static bool changed[2] = {};
+    bool& early = changed[player->index & 1];
+    if (!tweaks::on.instant_switch || demoInput != 0) {
+        // A turn that changed the color at its start skips the game's change halfway.
+        if (early && player->turn != 0 && player->turn < 0x2400)
+            player->turn = 0x2400;
+        early = false;
+        return playerMove_game(player);
+    }
+    uint16_t turn = player->turn;
+    if (turn != 0) {
+        // A turn that the game started before the tweak was on changes the color now.
+        if (!early && turn < 0x2400) {
+            player->polarity = static_cast<uchar>(player->polarity ^ 1);
+            playerSetPolarity(player);
+            playerTurnEffect(player->index);
+        }
+        early = true;
+        turn = static_cast<uint16_t>(turn + 0x400);
+        if (turn == 0x3c00)
+            player->flags = static_cast<uchar>(player->flags & 0xdf);
+        if (turn == 0x4000) {
+            player->turnRoll = 0;
+            turn = 0;
+        }
+        else {
+            const Float s = njSin(turn);
+            player->turnRoll = static_cast<int>(fmac(s, static_cast<float>(player->turnRollTo),
+                                                     static_cast<float>(player->turnRollFrom) * (1.0f - s)));
+        }
+    }
+    const int roll = player->turnRoll;
+    player->turn = 0;
+    playerMove_game(player);
+    if (player->turn == 0) {
+        player->turn = turn;
+        early = turn != 0;
+        return;
+    }
+    // playerButtons started a turn: the new color now, and a turn that ran goes on from its roll.
+    player->turnRollFrom = roll;
+    player->polarity = static_cast<uchar>(player->polarity ^ 1);
+    playerSetPolarity(player);
+    playerTurnEffect(player->index);
+    early = true;
+}
+
+// NO MUSIC (port/hooked.txt). The music plays as MIDI sequences, whose volume the SDK's sdMidiSetVol
+// sets: at their start in soundServer, and for a fade. With the tweak it sets -127, the volume at
+// which the game itself silences an effect. The sequences still play, so the game's timing stays.
+namespace {
+std::unordered_map<uint32_t, char> asked_volume;  // by sequence handle, what the game set last
+bool music_muted = false;
+}  // namespace
+
+dword FUN_8c053208(gptr<undefined1> handle, char volume, int fade) {
+    asked_volume[handle.a] = volume;
+    return FUN_8c053208_game(handle, tweaks::on.no_music ? static_cast<char>(-0x7f) : volume, fade);
+}
+
+// A change of the tweak reaches the sequences that play: soundSequencePlayers holds a handle for
+// each of the 8 slots, 0x20 bytes apart.
+void soundServer() {
+    if (tweaks::on.no_music != music_muted) {
+        music_muted = tweaks::on.no_music;
+        for (uint32_t i = 0; i < 8; ++i) {
+            const gptr<undefined1> handle = *gptr<gptr<undefined1>>(0x8c1cb22cu + 0x20 * i);
+            if (soundSequenceSlots[i].state == 0 || !handle)
+                continue;
+            const auto it = asked_volume.find(handle.a);
+            const char volume = it != asked_volume.end() ? it->second : static_cast<char>(soundSequenceSlots[i].level);
+            FUN_8c053208_game(handle, music_muted ? static_cast<char>(-0x7f) : volume, 0);
+        }
+    }
+    soundServer_game();
+}
+
+// NO DEATH BULLETS (port/hooked.txt): the bullets of the enemy's color that a destroyed enemy fires
+// at the player who made the kill. The attract demo keeps them, as its recorded input expects them.
+void enemyDeathBullets(int enemy, gptr<float> position, uint count, float spread, float speed, float param_6) {
+    if (tweaks::on.no_death_bullets && demoInput == 0)
+        return;
+    enemyDeathBullets_game(enemy, position, count, spread, speed, param_6);
+}
+
+}  // namespace game

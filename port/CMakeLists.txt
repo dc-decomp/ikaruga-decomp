@@ -60,6 +60,7 @@ add_library(ikaruga_render STATIC
   src/render/settings.cpp
   src/render/overlay.mm
   src/render/font.cpp
+  src/render/english_textures.cpp
   src/render/activity.mm
   src/render/audio.cpp
   "${SHADER_BUILD_DIR}/shaders.cpp")
@@ -105,6 +106,7 @@ add_executable(ikaruga
   src/video.cpp
   src/diff.cpp
   src/game_tweaks.cpp
+  src/text.cpp
   src/sh4/sh4.cpp
   src/sh4/selftest.cpp)
 target_link_libraries(ikaruga PRIVATE ikaruga_decomp ikaruga_render dream::runtime)

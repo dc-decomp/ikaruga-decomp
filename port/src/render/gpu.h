@@ -68,6 +68,8 @@ public:
     // The samples of the anisotropic filtering of bilinear textures, from 1 (none) to 16, for the
     // renders from now on.
     void set_anisotropy(unsigned samples);
+    // ENGLISH TEXT: English in the textures that hold Japanese words (english_textures.h).
+    void set_english(bool on);
     unsigned anisotropy() const;
     void set_overlay(const uint32_t* pixels, uint32_t width, uint32_t height);
     // The displayed framebuffer as RGBA8, red in the lowest byte. False if no render made it.

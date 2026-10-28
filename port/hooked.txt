@@ -1,0 +1,15 @@
+# Functions of the game that the port wraps for its tweaks (port/src/game_tweaks.cpp).
+# tools/decomp/convert.py generates each one as NAME_game, and the port defines NAME, which calls
+# it. One C++ identifier per line.
+
+# The polarity switch's turn: SWITCH AT ONCE.
+playerMove
+# The music's sequences, and their volume (the SDK's sdMidiSetVol): NO MUSIC.
+soundServer
+FUN_8c053208
+# The bullets that an enemy fires when it is destroyed: NO DEATH BULLETS.
+enemyDeathBullets
+# A line of Shift-JIS text as a texture, and the copy of a glyph into it: ENGLISH TEXT and the
+# port's own glyphs with smooth edges (port/src/text.cpp).
+FUN_8c06ab78
+FUN_8c06aaa0

@@ -20,6 +20,10 @@ constexpr Entry kEntries[] = {
     {"infinite_charge", &Tweaks::infinite_charge},
     {"half_bullets", &Tweaks::half_bullets},
     {"no_press_start", &Tweaks::no_press_start},
+    {"instant_switch", &Tweaks::instant_switch},
+    {"no_music", &Tweaks::no_music},
+    {"no_death_bullets", &Tweaks::no_death_bullets},
+    {"english", &Tweaks::english},
 };
 
 std::string trim(const std::string& s) {
@@ -62,6 +66,12 @@ std::string Tweaks::text() const {
     std::ostringstream o;
     for (const Entry& e : kEntries) o << e.key << " = " << (this->*e.value ? 1 : 0) << "\n";
     return o.str();
+}
+
+Tweaks Tweaks::either(const Tweaks& other) const {
+    Tweaks t = *this;
+    for (const Entry& e : kEntries) t.*e.value = t.*e.value || other.*e.value;
+    return t;
 }
 
 Graphics Graphics::parse(const std::string& text) {

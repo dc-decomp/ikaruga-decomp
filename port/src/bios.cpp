@@ -15,7 +15,7 @@
 #include "decomp.h"
 #include "disc.h"
 #include "hw.h"
-#include "render/font.h"
+#include "text.h"
 
 namespace {
 
@@ -108,20 +108,20 @@ int syBtFntChkSmph() { return 0; }
 void syBtFntClrSmph() {}
 
 // The glyph of the Shift-JIS character `code` in the boot ROM's 24-dot font, 72 bytes, for the
-// game's text textures. Without a boot ROM image, macOS's Hiragino Sans draws it (render/font.h).
+// game's text textures. Without a boot ROM image macOS's Hiragino Sans draws it, and ENGLISH TEXT
+// draws its own cells (text.h).
 undefined4 FUN_8c06aa40(gptr<undefined4> out, Sint16 code) {
     diff::Check check("FUN_8c06aa40", 0x8C06AA40u, out, code);
-    if (hw::rom_loaded()) {
-        const Uint32 at = syBtFntGetAddr(SYE_BT_FNT_FONTSET_JP_LVL2_24, code);
+    uint8_t glyph[72];
+    if (text::glyph(static_cast<uint16_t>(code), hw::rom_loaded(), out.a, glyph)) {
+        diff::own_state();
         for (uint32_t i = 0; i < 0x48; ++i)
-            guest::store<uint8_t>(out.a + i, guest::load<uint8_t>(0xA0100020u + at + i));
+            guest::store<uint8_t>(out.a + i, glyph[i]);
         return check.returns(undefined4(0));
     }
-    diff::own_state();
-    uint8_t glyph[72];
-    render::glyph24(static_cast<uint16_t>(code), glyph);
+    const Uint32 at = syBtFntGetAddr(SYE_BT_FNT_FONTSET_JP_LVL2_24, code);
     for (uint32_t i = 0; i < 0x48; ++i)
-        guest::store<uint8_t>(out.a + i, glyph[i]);
+        guest::store<uint8_t>(out.a + i, guest::load<uint8_t>(0xA0100020u + at + i));
     return check.returns(undefined4(0));
 }
 

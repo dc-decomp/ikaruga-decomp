@@ -8,6 +8,10 @@
 //   infinite_charge = 0
 //   half_bullets = 0
 //   no_press_start = 0
+//   instant_switch = 0
+//   no_music = 0
+//   no_death_bullets = 0
+//   english = 0
 //
 // graphics.txt holds the GRAPHICS page's settings, which change only the picture:
 //
@@ -28,9 +32,15 @@ struct Tweaks {
     bool infinite_charge = false; // the homing lasers' energy stays full
     bool half_bullets = false;    // every second bullet ends as it appears
     bool no_press_start = false;  // no blinking PRESS START on a free player's side in play
+    bool instant_switch = false;  // the color changes on the switch's press (game_tweaks.cpp)
+    bool no_music = false;        // the music's sequences play silently, the effects as they are
+    bool no_death_bullets = false; // a destroyed enemy fires no bullets (enemyDeathBullets)
+    bool english = false;         // the game's Japanese lines in English (text.cpp)
 
     static Tweaks parse(const std::string& text);
     std::string text() const;
+    // Each switch that is on here or in `other`.
+    Tweaks either(const Tweaks& other) const;
 };
 
 struct Graphics {
