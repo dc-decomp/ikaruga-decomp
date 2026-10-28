@@ -122,7 +122,8 @@ The menu's CONTROLLER page sets the keys and the gamepad of each of two players.
 first gamepad that was plugged in and player 2 the second, and the page's GAMEPAD row swaps them.
 Player 2 has no keys at first. The second controller joins when player 2 presses Start during a
 game, as on the console. With MOUSE on, the mouse moves player 1's ship while it is in play and
-player 1 plays on the keyboard, within the game's bounds. A press on player 1's gamepad gives the
+player 1 plays on the keyboard, within the game's bounds. The tutorial and the attract demo steer
+the ship themselves. A press on player 1's gamepad gives the
 ship back to the gamepad until the next key. The left button shoots, the right switches polarity
 and the middle releases the homing lasers. The ship moves faster with the mouse than the game
 usually lets it, so consider it a tweak.

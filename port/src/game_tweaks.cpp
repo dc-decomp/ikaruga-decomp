@@ -229,9 +229,10 @@ void place_at(const Plane& p, double px, double py) {
 
 // From where the ship shows now, so that the camera's moves carry it as they carry a ship that a
 // gamepad steers, and the places that the game gives it, at a chapter's start or after a loss, hold.
+// The tutorial and the attract demo play recorded input, which steers the ship alone.
 void ship_by(float dx, float dy) {
     Plane p;
-    if ((dx == 0 && dy == 0) || !plane(p))
+    if ((dx == 0 && dy == 0) || demoInput != 0 || !plane(p))
         return;
     double v[3], px, py;
     const double depth = view(p, real(p.player + 0x60), real(p.player + 0x64), v);
