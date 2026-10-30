@@ -52,7 +52,10 @@ seeds 3,918.
 - SDL3: `brew install sdl3`
 - Python 3.10 or later
 - dream-recomp, the submodule `dream-recomp/`: a commit of the `ikaruga-bringup` branch of
-  [kjyv's fork](https://github.com/kjyv/dream-recomp). Clone this repository with
+  [kjyv's fork](https://github.com/kjyv/dream-recomp). Upstream
+  [dream-recomp](https://github.com/phobos665/dream-recomp) has Ikaruga's support since its pull
+  request 11. The fork's branch adds pull request 15, the sound's headroom and limiter, which the
+  port needs until upstream merges it. Clone this repository with
   `--recurse-submodules`, or run `git submodule update --init --recursive` in a clone. The
   analysis runs dream-recomp's `dream-translate` from its `build/`, and the steps below run its
   `dcdisc` from a virtual environment in its `.venv`. From this repository's directory:
