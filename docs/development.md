@@ -201,8 +201,12 @@ env IKARUGA_AUTOPLAY=1 \
   IKARUGA_STREAMS=before.txt \
   build-before/ikaruga \
   --unthrottled \
+  --saves "$(mktemp -d)" \
   --frames 122000
 ```
+
+Autoplay saves to the memory card after the ending. A new, empty card for each run, as `--saves`
+gives here, keeps the runs the same and leaves `saves/` as it is.
 
 Do this for each change of names or types, and for each change of the converter or the scripts.
 A naming batch once changed how a float was stored in three functions, and the game looked and

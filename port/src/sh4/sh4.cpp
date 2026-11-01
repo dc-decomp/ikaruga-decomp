@@ -21,7 +21,7 @@ namespace sh4 {
 namespace {
 
 constexpr uint32_t kReturn = 0xFFFFFFF0u;  // PR of the outermost call: run() returns there
-constexpr uint32_t kSZ = 1u << 20, kPR = 1u << 19, kFR = 1u << 21;
+constexpr uint32_t kSZ = 1u << 20, kFR = 1u << 21;
 
 // The last branches taken, for reports: from, to.
 uint32_t g_branches[64][2];
