@@ -1,6 +1,6 @@
-# address	name	source  Function names for Ghidra and dream-recomp. Rows whose source
-# starts with sdk- are rewritten by tools/symbols/match_libs.py. Add your own with
-# the source user.
+# address	name	source	comment  Function names for Ghidra and dream-recomp. Rows whose
+# source starts with sdk- are rewritten by tools/symbols/match_libs.py. Add your own with
+# the source user. tools/decomp/convert.py writes the comment above the function.
 0x0c010138	_njSetCurrentContext	sdk-r2.00j ninja2:njContext_.obj.elf (function)
 0x0c01014c	_njInitContext	sdk-r2.00j ninja2:njContext_.obj.elf (function)
 0x0c010172	_njZBufferMode	sdk-r2.00j ninja2:njContext_.obj.elf (function)
@@ -1776,7 +1776,9 @@
 0x0c066ecc	taskEnd	user
 0x0c06f85c	scoreAdd	user
 0x0c0701c0	chainCount	user
-0x0c070018	chainBonus	user
+0x0c06fb28	chainBonusLabelDraw	user	Draws the label of a chain bonus (chainBonus). Its first call puts the label where the kill was on the screen, within the screen's edges. Then it draws the chain's step, or MAX, and the points.
+0x0c06ff30	chainBonusLabelUpdate	user	Moves the label of a chain bonus (chainBonus) on and fades its flash. The MAX label also shrinks. After 32 frames the label fades out, and the task ends.
+0x0c070018	chainBonus	user	Pays the bonus of a step in a chain of kills of one color: 100 points at the first step, doubled at each step, up to 25,600 at the ninth and every later one (MAX). Shows the points where the kill was, in a task of chainBonusLabelUpdate and chainBonusLabelDraw.
 0x0c078ff8	hitInit	user
 0x0c07904c	hitInitRegistered	user
 0x0c078e98	hitShapeInit	user

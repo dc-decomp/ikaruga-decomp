@@ -268,12 +268,12 @@ def main() -> int:
     return 0
 
 
-FUNCTIONS_HEADER = ("# address\tname\tsource  Function names for Ghidra and dream-recomp. Rows whose source\n"
-                    "# starts with sdk- are rewritten by tools/symbols/match_libs.py. Add your own with\n"
-                    "# the source user.\n")
-GLOBALS_HEADER = ("# address\tname\tsource  Data names, for Ghidra only. Rows whose source starts with\n"
-                  "# sdk- are rewritten by tools/symbols/match_libs.py. Add your own with the source user. A fourth\n"
-                  "# column types the data: a C type from game/types.h or the SDK's headers.\n")
+FUNCTIONS_HEADER = ("# address\tname\tsource\tcomment  Function names for Ghidra and dream-recomp. Rows whose\n"
+                    "# source starts with sdk- are rewritten by tools/symbols/match_libs.py. Add your own with\n"
+                    "# the source user. tools/decomp/convert.py writes the comment above the function.\n")
+GLOBALS_HEADER = ("# address\tname\tsource\ttype\tcomment  Data names, for Ghidra only. Rows whose source starts\n"
+                  "# with sdk- are rewritten by tools/symbols/match_libs.py. Add your own with the source user. The\n"
+                  "# type is a C type from game/types.h or the SDK's headers, and the comment goes above the global.\n")
 
 
 def write_merged(path: Path, found: dict[int, tuple[str, str]], header: str) -> int:

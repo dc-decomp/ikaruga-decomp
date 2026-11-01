@@ -1,6 +1,6 @@
-# address	name	source  Data names, for Ghidra only. Rows whose source starts with
-# sdk- are rewritten by tools/symbols/match_libs.py. Add your own with the source user. A fourth
-# column types the data: a C type from game/types.h or the SDK's headers.
+# address	name	source	type	comment  Data names, for Ghidra only. Rows whose source starts
+# with sdk- are rewritten by tools/symbols/match_libs.py. Add your own with the source user. The
+# type is a C type from game/types.h or the SDK's headers, and the comment goes above the global.
 0x0c10af68	__nj_near_clip_	sdk-r10.1 reference
 0x0c10af94	__nj_waitvsync_count	sdk-r2.00j reference
 0x0c10af98	__nj_control_3d_flag_	sdk-r2.00j reference

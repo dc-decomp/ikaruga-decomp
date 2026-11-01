@@ -38,24 +38,36 @@ reference build uses `game/symbols.tsv`.
 
 | File | Content |
 | --- | --- |
-| `game/symbols.tsv` | Function names |
-| `game/globals.tsv` | Data names, and in a fourth column their types. Ghidra makes labels from them, never functions. |
+| `game/symbols.tsv` | Function names, and in a fourth column a comment on each |
+| `game/globals.tsv` | Data names, in a fourth column their types and in a fifth a comment. Ghidra makes labels from them, never functions. |
 | `game/types.h` | The game's types and the prototypes of its functions |
 
 Each row is an address, a name and a source, separated by tabs. Either RAM spelling of the address
 works (`0x0c013958` or `0x8c013958`).
 
-1. When you know what a function does, add a row with the source `user`:
+1. When you know what a function does, add a row with the source `user`, and a comment:
 
    ```text
-   0x0c013958	queryLastTextureDmaDone	user
+   0x0c06ff30	chainBonusLabelUpdate	user	Moves the label of a chain bonus on. ...
    ```
 
-2. Run `tools/ghidra/analyze.sh`, then `python3 tools/decomp/convert.py`. The new name shows in the
-   function's file and at each call.
-3. Before you commit, compare a whole game of the port before and after the change, with
-   `IKARUGA_STREAMS` (below). A name or a type changes Ghidra's whole analysis. Its guesses of types
-   elsewhere can shift, and with them the C++ of functions far from the name.
+2. Run `python3 tools/decomp/convert.py`. It names the function itself, in its file and at each
+   call, so a name needs no new analysis. It refuses a name that is no C++ identifier, that names
+   two functions or that the code uses already: a local, a parameter, a field or a global. It also
+   refuses to rename a function that `port/` names: rename it there in the same change.
+3. Build, and compare a game of the port before and after the change, with `IKARUGA_STREAMS`
+   (below). A name alone leaves the code as it was, so the streams stay the same.
+
+A data name and a type change Ghidra's analysis: run `tools/ghidra/analyze.sh` before
+`convert.py`, and compare a whole game. Ghidra's guesses of types elsewhere can shift, and with them
+the C++ of functions far from the change.
+
+The comments go above each function in `decomp/gen/`, above its declaration in `functions.h` and
+above each global in `globals.h`. A comment says what the function does, when it runs and what its
+values mean, in one to three sentences, from what the code, its callers or a run show. Keep the
+game's systems in [game.md](game.md), and point there. Name only what the evidence shows: a wrong
+name misleads more than `FUN_8c0a1234`. Where the purpose is unclear, a comment can still say who
+calls the function and when.
 
 The SDK functions' rows have a source that starts with `sdk-`. Where a `user` row and an SDK row
 have the same address, the `user` row wins.

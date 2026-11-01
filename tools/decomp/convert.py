@@ -17,6 +17,11 @@ union, typedef and enum with field offsets). Writes into the output directory:
 Every guest pointer becomes gptr<T> and every dereference a gref<T> (port/include/guest.h). A local
 whose address is taken gets a slot on the guest stack at the offset Ghidra found on the console.
 
+Names come from game/symbols.tsv and game/globals.tsv as Ghidra applied them. A user row in
+symbols.tsv also names its function here, before an analysis has applied it, so that a name needs
+no new analysis. The comment column of both files goes above each function, its declaration and
+each global.
+
 A function defined in fix/*.cpp (hand-corrected decompiled code) or listed in port/replaced.txt
 (native code in the port) is not generated. A function listed in port/hooked.txt is generated as
 NAME_game, and the port defines NAME, which wraps it.
@@ -33,6 +38,7 @@ import json
 import re
 import struct
 import sys
+import textwrap
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -59,11 +65,27 @@ PRIMITIVE = {
     "ImageBaseOffset32": "uint", "Void": "void", "VOID": "void", "KMVOID": "void",
 }
 FLOAT_TYPES = {"float", "Float", "KMFLOAT"}
+# C++'s keywords, which no name may be.
+CPP_KEYWORDS = {
+    "alignas", "alignof", "and", "asm", "auto", "bool", "break", "case", "catch", "char", "class",
+    "const", "constexpr", "continue", "decltype", "default", "delete", "do", "double", "else",
+    "enum", "explicit", "export", "extern", "false", "float", "for", "friend", "goto", "if",
+    "inline", "int", "long", "mutable", "namespace", "new", "noexcept", "not", "nullptr",
+    "operator", "or", "private", "protected", "public", "register", "return", "short", "signed",
+    "sizeof", "static", "struct", "switch", "template", "this", "throw", "true", "try", "typedef",
+    "typeid", "typename", "union", "unsigned", "using", "virtual", "void", "volatile", "while",
+    "xor",
+}
 KEYWORDS = {
     "if", "else", "while", "for", "do", "switch", "case", "default", "return", "break",
     "continue", "goto", "sizeof", "typedef", "struct", "union", "enum", "const", "volatile",
     "static", "extern", "unsigned", "signed",
 }
+
+
+def doc_lines(comment: str) -> list[str]:
+    """A comment from the names' files, as lines of C++ comment."""
+    return ["// " + line for line in textwrap.wrap(comment, 97)] if comment else []
 
 
 def cpp_ident(name: str) -> str:
@@ -282,6 +304,7 @@ class Function:
         self.addr = addr
         self.c = c
         self.side = side
+        self.comment = ""  # from game/symbols.tsv
         self.name = side["name"]
         self.ident = cpp_ident(self.name)
         sig = side["signature"].strip()
@@ -406,22 +429,85 @@ class Converter:
         self.dup_names: set[str] = set()
         self.by_addr: dict[str, Function] = {}
 
+    def load_names(self) -> None:
+        """The rows of game/symbols.tsv by address, and the comments of game/globals.tsv."""
+        self.names: dict[str, tuple[str, str, str]] = {}  # address -> name, source, comment
+        for line in (ROOT / "game" / "symbols.tsv").read_text().splitlines():
+            if line.strip() and not line.startswith("#"):
+                cols = line.split("\t") + ["", "", ""]
+                addr = f"{(int(cols[0], 16) & 0x1FFFFFFF) | 0x80000000:08x}"
+                self.names[addr] = (cols[1], cols[2], cols[3].strip())
+        self.global_comments: dict[int, str] = {}
+        for line in (ROOT / "game" / "globals.tsv").read_text().splitlines():
+            if line.strip() and not line.startswith("#"):
+                cols = line.split("\t") + ["", "", "", ""]
+                if cols[4].strip():
+                    self.global_comments[(int(cols[0], 16) & 0x1FFFFFFF) | 0x80000000] = cols[4].strip()
+
+    def check_renames(self, texts: list[str]) -> None:
+        """A new name must not meet another identifier: a local, a parameter, a field, a global or
+        another function. The port's code and lists name some functions too, and a renamed one must
+        change there in the same commit."""
+        problems = []
+        olds = set(self.rename)
+        tokens = set()
+        for text in texts:
+            tokens.update(re.findall(r"\b[A-Za-z_]\w*\b", text))
+        for new, count in collections.Counter(self.rename.values()).items():
+            if not re.fullmatch(r"[A-Za-z_]\w*", new) or new in CPP_KEYWORDS:
+                problems.append(f"{new}: not a C++ identifier")
+            elif count > 1:
+                problems.append(f"{new}: names {count} functions")
+            elif new in tokens and new not in olds:
+                problems.append(f"{new}: the code has this identifier already")
+        port = [ROOT / "tools" / "decomp" / "spills.txt", *(ROOT / "port").glob("*.txt"),
+                *(p for p in (ROOT / "port").rglob("*") if p.suffix in (".cpp", ".h", ".mm") and p.is_file())]
+        for path in port:
+            used = olds & set(re.findall(r"\b[A-Za-z_]\w*\b", path.read_text(errors="replace")))
+            for old in sorted(used):
+                problems.append(f"{old} -> {self.rename[old]}: rename it in {path.relative_to(ROOT)} too")
+        if problems:
+            sys.exit("convert: names in game/symbols.tsv that cannot apply:\n  " + "\n  ".join(problems))
+
     def load(self) -> None:
+        self.load_names()
         index = (self.ghidra / "c" / "index.tsv").read_text().splitlines()[1:]
-        for row in index:
-            addr, name, size, status = row.split("\t")[:4]
+        rows = [row.split("\t")[:4] for row in index]
+        # Each function that a user row names otherwise than Ghidra did is renamed in every
+        # function's C and sidecar.
+        self.rename: dict[str, str] = {}
+        for addr, name, _, _ in rows:
+            row = self.names.get(addr)
+            if row and row[1] == "user" and row[0] != name:
+                self.rename[name] = row[0]
+        starts = {addr for addr, _, _, _ in rows}
+        for addr, (name, source, _) in sorted(self.names.items()):
+            if source == "user" and addr not in starts and int(addr, 16) < CODE_END:
+                print(f"convert: game/symbols.tsv names {name} at 0x{addr}, where no function starts")
+        texts = {}
+        for addr, name, _, status in rows:
             side_path = self.ghidra / "c" / f"{addr}.json"
+            if side_path.exists():
+                texts[addr] = (side_path.read_text(), (self.ghidra / "c" / f"{addr}.c").read_text())
+        if self.rename:
+            self.check_renames([c for _, c in texts.values()])
+            token = re.compile(r"\b[A-Za-z_]\w*\b")
+            for addr, (side, c) in texts.items():
+                texts[addr] = tuple(token.sub(lambda m: self.rename.get(m.group(0), m.group(0)), t)
+                                    for t in (side, c))
+        for addr, name, size, status in rows:
             if status != "ok":
                 self.report.append(f"not decompiled: {name} @ {addr}: {status}")
-                if not side_path.exists():
-                    continue
-            side = json.loads(side_path.read_text())
-            c = (self.ghidra / "c" / f"{addr}.c").read_text()
+            if addr not in texts:
+                continue
+            side = json.loads(texts[addr][0])
+            c = texts[addr][1]
             try:
                 f = Function(addr, c, side, self.ty)
             except ValueError as e:
                 self.report.append(f"skipped {name} @ {addr}: {e}")
                 continue
+            f.comment = self.names.get(addr, ("", "", ""))[2]
             if f.name in self.by_name:
                 f.ident = f"{f.ident}_{addr}"
                 self.dup_names.add(f.name)
@@ -703,6 +789,7 @@ class Converter:
                '#include "types.h"', ""]
         for name in sorted(self.globals):
             gtype, addr = self.globals[name]
+            out += doc_lines(self.global_comments.get((addr & 0x1FFFFFFF) | 0x80000000, ""))
             out.append(self.global_def(cpp_ident(name), gtype, addr))
         return "\n".join(out) + "\n"
 
@@ -712,6 +799,7 @@ class Converter:
         for f in self.functions:
             if f.varargs and (f.name in self.skip or f.ident in self.skip):
                 continue  # port/include/native.h declares it, as a template that takes the words
+            out += doc_lines(f.comment)
             fewest = self.fewest_args.get(f.name)
             if fewest is not None and fewest < len(f.params) and not f.varargs:
                 # Some call passes fewer arguments than Ghidra's prototype has. On the console
@@ -882,7 +970,7 @@ class Converter:
         header = f"// {f.name} @ 0x{f.addr}"
         overrides, undefs = self.global_overrides(f)
         rest = self.byte_compares(rest, overrides + extra_defs)
-        return "\n".join([header] + overrides + extra_defs + [sig, "{"] + decl_lines + [rest]
+        return "\n".join([header] + doc_lines(f.comment) + overrides + extra_defs + [sig, "{"] + decl_lines + [rest]
                          + undefs + extra_undefs) + "\n"
 
     # Ghidra's prefixes for a global it has no symbol for give the type: uRam8c02ebc0 is a uint.
