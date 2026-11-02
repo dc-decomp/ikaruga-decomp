@@ -238,6 +238,16 @@ does, and writes the scaled framebuffer to `OUT.png.scaled.png`. The render afte
 equal a render at the new scale. `--list` lists the draws, and with `RENDER_VIEW_VERTICES=1` each
 vertex with its u and v.
 
+## A release
+
+`tools/port/release.py` builds `Ikaruga.app` for a release in `build-dist/` and zips it. The program
+runs on macOS 15 and later (`--macos`), and an API that is newer fails the build. Homebrew's SDL3
+runs only on the macOS that Homebrew built it for, so the script builds SDL3 from its release
+tarball and puts it into the bundle. The compiler writes the repository's path as `.`, strip
+removes the debug map, and the zip holds no extended attributes. The script then reads every file
+for this machine's user name, host names, git identity, serial number and absolute paths. It fails
+when it finds one.
+
 ## ENGLISH TEXT
 
 `port/src/text.cpp` knows the game's Japanese lines by the FNV-1a hash of their Shift-JIS bytes, so

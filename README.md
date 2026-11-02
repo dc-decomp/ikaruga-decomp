@@ -31,6 +31,18 @@ Apple M4 Pro, from the Japanese GD-ROM (T38706M, version 1.002).
 The analysis expects this disc's program: other releases, such as the PC, GameCube or Switch
 versions, do not work. The port runs on macOS only, as its renderer draws with Metal.
 
+## Download
+
+The [releases](https://github.com/dc-decomp/ikaruga-decomp/releases) have `Ikaruga.app` for macOS
+15 or later on Apple silicon, with SDL3 inside, so it needs no build and no Homebrew. It needs the
+disc image of your own copy of the game, the GD-ROM that [Status](#status) names, as a `.gdi` with
+its tracks. dream-recomp's `dcdisc chd2gdi` converts a CHD ([Building](#building), step 1). At
+its first start the app asks for the `.gdi`, and [Playing](#playing) describes the rest.
+
+The app has no Developer ID signature, so macOS blocks it at its first start. Then open System
+Settings → Privacy & Security and choose Open Anyway. Its build checks that it uses nothing newer
+than macOS 15, but it was played on macOS 26 only.
+
 ## How it works
 
 Ghidra decompiles the boot executable `1ST_READ.BIN` into one C file per function. Ghidra's stock
@@ -276,7 +288,7 @@ refreshes on the screen is a judder in the scrolling. `IKARUGA_PACING=1` counts 
 | `tools/ghidra/` | The analysis pipeline and the language patch |
 | `tools/symbols/` | The tools for the symbol tables |
 | `tools/decomp/` | The converter from Ghidra's C to C++ |
-| `tools/port/` | The port's checks, and the list of the game's Japanese lines |
+| `tools/port/` | The port's checks, the release build, and the list of the game's Japanese lines |
 | `tools/reference/` | The regression gate for dream-recomp's reference build |
 | `tools/game/` | `stage.py`, which prints a chapter's stage program or a stage script with names |
 | `port/` | The port: guest memory, the machine built from dream-recomp's runtime, the boot ROM's services, Ninja and Kamui, the renderer, the tweaks, the SH-4 interpreter and the differential tests |
@@ -300,11 +312,12 @@ calls: each computes what its machine code computes, so that the decompiled game
 analysis uses only the names, prototypes and types of the SDK functions that the game links.
 
 The game's code that `tools/decomp/convert.py` writes into `decomp/`, and every program built from
-it, derive from the game. Do not publish or share `decomp/`, `build-port/` or `Ikaruga.app`.
+it, derive from the game.
 
 ## License
 
 The files of this repository are licensed under the GNU General Public License, version 2 or (at
 your option) any later version: see [LICENSE](LICENSE). The port links dream-recomp's runtime,
 which is licensed under the GPL, version 2, with parts ported from Flycast, so a built program is
-under version 2.
+under version 2. The releases' app also holds SDL3, under the zlib license. The app keeps the three
+licenses in `Contents/Resources`.
