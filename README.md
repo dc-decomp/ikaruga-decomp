@@ -12,14 +12,14 @@ it on your Mac ([Legal](#legal)).
 
 ## Why this port
 
-* First native way of playing Ikaruga on macOS (PC version exists only for Windows)
-* Low latency (16 ms with vsync off, likely lower than on the real hardware or PC version)
-* Very smooth and solid 60 fps: no jitters, no slowdowns (likely smoother than on real hardware)
-* Up to 4K resolution, anisotropic filtering for best rendering quality
+* Native playing of Ikaruga on macOS (PC version exists only for Windows)
+* Very smooth and solid 60 fps: no jitters, no slowdowns (smoother than on original hardware)
+* Low input latency (16 ms with vsync off, lower than with the original hardware or PC versions)
+* Up to 4K resolution, anisotropic filtering for better texture quality
 * Optional mouse mode for a more direct game experience
 * Mods and tweaks: infinite lives and laser charge, half the bullets, an instant polarity switch,
   no music, no bullets from destroyed enemies, English text and more, on the menu's MODS AND
-  TWEAKS page. The game's code is readable C++, which later mods can change.
+  TWEAKS page. The game's code is readable C++, which makes modding easier.
 
 [Performance](#performance) gives the measurements.
 
@@ -27,10 +27,9 @@ it on your Mac ([Legal](#legal)).
 
 The game plays from the boot through all five chapters to the ending, for one or two players, with
 the menus, the tutorial and the memory card. The port was built and tested on macOS 26 with an
-Apple M4 Pro, from a CHD of the Japanese GD-ROM (T38706M, version 1.002). A GDI of the same disc
-gives the same files. The analysis expects this disc's program: other releases, such as the PC,
-GameCube or Switch versions, do not work. The port runs on macOS only, as its renderer draws with
-Metal.
+Apple M4 Pro, from the Japanese GD-ROM (T38706M, version 1.002).
+The analysis expects this disc's program: other releases, such as the PC, GameCube or Switch
+versions, do not work. The port runs on macOS only, as its renderer draws with Metal.
 
 ## How it works
 
@@ -59,10 +58,10 @@ seeds 3,918.
 
 - macOS with Xcode's command line tools
 - CMake 3.24 or later: `brew install cmake`
-- Ghidra 12.2 and JDK 25: `brew install ghidra`
+- Ghidra 12.2 and JDK 25: `brew install ghidra` (a newer version than 12.2 might break things and need readjusting)
 - SDL3: `brew install sdl3`
 - Python 3.10 or later
-- dream-recomp, the submodule `dream-recomp/`: a commit of the `ikaruga-bringup` branch of
+- dream-recomp via the submodule `dream-recomp/`: a commit of the `ikaruga-bringup` branch of
   [kjyv's fork](https://github.com/kjyv/dream-recomp). Upstream
   [dream-recomp](https://github.com/phobos665/dream-recomp) has Ikaruga's support since its pull
   request 11. The fork's branch adds pull request 15, the sound's headroom and limiter, which the
@@ -298,16 +297,14 @@ Sega. Dreamcast is a trademark of Sega.
 The repository holds tools, names, types and documentation, and the port's own code. The port
 reimplements the functions of the Katana SDK's graphics libraries, Ninja and Kamui, that the game
 calls: each computes what its machine code computes, so that the decompiled game runs on it. The
-analysis uses the names, prototypes and types of the SDK functions that the game links.
+analysis uses only the names, prototypes and types of the SDK functions that the game links.
 
 The game's code that `tools/decomp/convert.py` writes into `decomp/`, and every program built from
-it, derive from the game. Keep them to yourself: do not publish or share `decomp/`, `build-port/` or
-`Ikaruga.app`.
+it, derive from the game. Do not publish or share `decomp/`, `build-port/` or `Ikaruga.app`.
 
 ## License
 
 The files of this repository are licensed under the GNU General Public License, version 2 or (at
 your option) any later version: see [LICENSE](LICENSE). The port links dream-recomp's runtime,
 which is licensed under the GPL, version 2, with parts ported from Flycast, so a built program is
-under version 2. The game's code in `decomp/` is not covered by this license: it belongs to the
-game's owners.
+under version 2.

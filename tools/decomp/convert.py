@@ -1111,6 +1111,7 @@ class Converter:
 
     def convert_expressions(self, text: str, f: Function) -> str:
         text = convert_casts(text, self.ty)
+        text = self.float_to_uint(text, f)
         # Code addresses used as values: function names not called, and code labels.
         def fn_value(m: re.Match) -> str:
             before, name, after = m.group(1), m.group(2), m.group(3)
@@ -1228,6 +1229,47 @@ class Converter:
         return f"game_{(a >> 14) << 14:08x}"
 
     WIDE_TYPES = ("undefined8", "ulonglong", "longlong", "qword", "double")
+
+    def float_to_uint(self, text: str, f: Function) -> str:
+        """A float converted to uint: the SH-4's ftrc keeps a negative value's bits, which a C++
+        conversion makes 0 on the host, so cpu::ftrc converts it. The angles from mathAtan2 that
+        ch1BossHomingUpdate turns toward are negative."""
+        floats = {n for n, t in getattr(f, "printed", {}).items() if t == "float"}
+        out, at = [], 0
+        for m in re.finditer(r"\(uint\)\s*", text):
+            if m.start() < at:
+                continue
+            rest = text[m.end():]
+            if rest.startswith("("):
+                inner = rest[1:]
+                if not (inner.startswith(("pun<float>(", "(float)"))
+                        or (re.match(r"[A-Za-z_]\w*", inner) and re.match(r"[A-Za-z_]\w*", inner).group(0) in floats)):
+                    continue
+                depth, end = 0, m.end()
+                while end < len(text):
+                    depth += text[end] == "("
+                    depth -= text[end] == ")"
+                    end += 1
+                    if depth == 0:
+                        break
+                expr = text[m.end() + 1:end - 1]
+                # A comparison yields a bool, not a float.
+                top, d = [], 0
+                for ch in expr:
+                    d += ch == "("
+                    d -= ch == ")"
+                    top.append(ch if d == 0 else " ")
+                if re.search(r"[<>]|==|!=|&&|\|\|", re.sub(r"\b\w+<[^<>()]*>", "", "".join(top))):
+                    continue
+                out.append(text[at:m.start()] + "cpu::ftrc(" + expr + ")")
+                at = end
+            else:
+                n = re.match(r"[A-Za-z_]\w*", rest)
+                if n is None or n.group(0) not in floats or rest[n.end():].lstrip().startswith(("(", "[", ".", "->")):
+                    continue
+                out.append(text[at:m.start()] + f"cpu::ftrc({n.group(0)})")
+                at = m.end() + n.end()
+        return "".join(out) + text[at:]
 
     def is_float_param(self, t: str) -> bool:
         ct = self.ty.type_only(t)
