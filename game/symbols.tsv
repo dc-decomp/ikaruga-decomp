@@ -2986,7 +2986,7 @@
 0x0c0c6b14	tutScript	user	Starts the tutorial's stage script at 0x8C1085B8 (scriptStart). The tutorial's stage program calls it at its start.
 0x0c0c6b24	tutBgDraw	user	Draws the tutorial's background: the model list at 0x8C109338 (2 models) three times, 400 apart in z, moved by its scroll.
 0x0c0c6b9c	tutBgUpdate	user	Moves the tutorial's background's scroll by 1 a frame, wrapping at 400.
-0x0c0c6bbc	tutBg	user	Makes the tutorial's background, a task in list 0 (tutBgUpdate, tutBgDraw) with 0 data bytes. Its scroll, a float at the data's start, lies in syMalloc's padding. The tutorial's stage program calls it at its start through tutBgJump.
+0x0c0c6bbc	tutBg	user	Makes the tutorial's background, a task in list 0 (tutBgUpdate, tutBgDraw) whose data is its scroll, a float. The game asks for 0 data bytes, so the float lies in syMalloc's padding. The port's tutBg (port/src/native.cpp) asks for the 4 bytes. The tutorial's stage program calls it at its start through tutBgJump.
 0x0c0c6be4	tutBgJump	user	Jumps to tutBg (a stub of mov.l and jmp). The tutorial's stage program calls it at its start.
 0x0c0c6bf0	tutUnlockAfterUpdate	user	The task of tutUnlockAfter: counts its frames down, and at 0 it lowers the stage's lock (stageUnlock) and ends.
 0x0c0c6c1c	tutUnlockAfter	user	Makes a task in list 3 with no draw (tutUnlockAfterUpdate) that lowers the stage's lock after a number of frames. The tutorial's stage program calls it after each step.

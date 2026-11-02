@@ -29,6 +29,9 @@ _in_logs
 # The decompiler process dies on it (port/src/native.cpp).
 njInitGlobal2
 
+# The tutorial's background, whose task gets the 4 data bytes it uses (port/src/native.cpp).
+tutBg
+
 # Shinobi's operand cache functions, which the port has no cache for (port/src/native.cpp).
 syCacheOCBI
 syCacheOCBP

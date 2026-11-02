@@ -1,5 +1,5 @@
 // Functions of the game written natively: the C library's single-precision math, the one Ninja
-// function the decompiler cannot handle and Shinobi's cache functions.
+// function the decompiler cannot handle, Shinobi's cache functions and a corrected game function.
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -225,5 +225,15 @@ void text_printf(float x, float y, uint32_t format, const uint32_t* values, size
         clipPlayArea();
 }
 
+// The tutorial's background task keeps its scroll, a float, at the start of its data, but the game
+// asks taskCreate for 0 data bytes. syMalloc rounds 0x18 and 0x1C bytes up to the same block, so
+// asking for the 4 bytes changes no memory, and the float stays inside the block under any other
+// allocator.
+void tutBg() {
+    diff::Check check("tutBg", 0x8C0C6BBCu);
+    const gptr<float> scroll = gptr<float>(taskCreate(gptr<code>(0x8C0C6B9Cu), gptr<code>(0x8C0C6B24u), 4, 0));
+    if (scroll)
+        *scroll = 0.0f;
+}
 
 }  // namespace game
