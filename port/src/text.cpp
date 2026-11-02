@@ -1,8 +1,8 @@
-// The game's lines of text (port/hooked.txt). FUN_8c06ab78 makes a texture of a line of Shift-JIS
-// characters, 24 dots each from the boot ROM's font (FUN_8c06aa40), which FUN_8c06aaa0 copies in
-// with each dot also on the dots to its right and below.
+// The game's lines of text (port/hooked.txt). textLineTexture makes a texture of a line of
+// Shift-JIS characters, 24 dots each from the boot ROM's font (fontGlyphGet), which textGlyphCopy
+// copies in with each dot also on the dots to its right and below.
 //
-// Where the port draws the glyphs itself, they blend at their edges: FUN_8c06aaa0's wrapper writes
+// Where the port draws the glyphs itself, they blend at their edges: textGlyphCopy's wrapper writes
 // how much of each dot the character covers as the alpha of an ARGB4444 texture. The game's own
 // pixels mean the same in that format, its white 0xFFFE and its empty 0x0001.
 //
@@ -157,7 +157,7 @@ const std::unordered_map<uint32_t, const char*> kEnglish = {
 // The cells of the English line that the game draws now.
 std::vector<render::Glyph> cells;
 
-// The coverage of the glyph that FUN_8c06aa40 wrote last, and where, for the copy that follows.
+// The coverage of the glyph that fontGlyphGet wrote last, and where, for the copy that follows.
 render::Glyph fetched;
 uint32_t fetched_at = 0;
 
@@ -191,9 +191,9 @@ namespace game {
 // glyph also onto the dots to its right and below, which widens the ROM's strokes of one dot;
 // Hiragino's strokes are as wide already. `pixels` follows the texture's header, whose word 6 holds
 // its format: 0x900 ARGB1555, 0x902 ARGB4444, both rectangles.
-void FUN_8c06aaa0(gptr<byte> glyph, int pixels, uint x, uint y, ushort stride, undefined2 color) {
+void textGlyphCopy(gptr<byte> glyph, int pixels, uint x, uint y, ushort stride, undefined2 color) {
     if (glyph.a != fetched_at || fetched_at == 0)
-        return FUN_8c06aaa0_game(glyph, pixels, x, y, stride, color);
+        return textGlyphCopy_game(glyph, pixels, x, y, stride, color);
     fetched_at = 0;
     diff::own_state();
     const uint32_t base = static_cast<uint32_t>(pixels);
@@ -205,10 +205,10 @@ void FUN_8c06aaa0(gptr<byte> glyph, int pixels, uint x, uint y, ushort stride, u
         }
 }
 
-gptr<uint> FUN_8c06ab78(uint align, gptr<byte> text) {
+gptr<uint> textLineTexture(uint align, gptr<byte> text) {
     const auto it = tweaks::current().english ? kEnglish.find(fnv1a(text)) : kEnglish.end();
     if (it == kEnglish.end())
-        return FUN_8c06ab78_game(align, text);
+        return textLineTexture_game(align, text);
     cells = render::line24(it->second);
     cells.resize(std::min(cells.size(), kMaxCells));
     // The line of codes, on the guest's stack.
@@ -220,7 +220,7 @@ gptr<uint> FUN_8c06ab78(uint align, gptr<byte> text) {
         guest::store<uint8_t>(line + 2 * i + 1, static_cast<uint8_t>(kFirstCell + i));
     }
     guest::store<uint8_t>(line + bytes - 1, 0);
-    const gptr<uint> texture = FUN_8c06ab78_game(align, gptr<byte>(line));
+    const gptr<uint> texture = textLineTexture_game(align, gptr<byte>(line));
     cells.clear();
     return texture;
 }

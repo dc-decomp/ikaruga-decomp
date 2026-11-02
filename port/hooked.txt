@@ -11,5 +11,5 @@ FUN_8c053208
 enemyDeathBullets
 # A line of Shift-JIS text as a texture, and the copy of a glyph into it: ENGLISH TEXT and the
 # port's own glyphs with smooth edges (port/src/text.cpp).
-FUN_8c06ab78
-FUN_8c06aaa0
+textLineTexture
+textGlyphCopy

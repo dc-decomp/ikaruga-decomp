@@ -1664,7 +1664,335 @@
 0x0c063934	__unpack	sdk-r2.00j sh4nlfzn:_unpack.obj.elf
 0x0c063a3c	__xti	sdk-r2.00j sh4nlfzn:_xti.obj.elf
 0x0c063d50	__xtostr	sdk-r2.00j sh4nlfzn:_xtostr.obj.elf
+0x0c06444e	fmtRoundDigits	user	The C library's printf, for a number's digits: rounds the digits at a position, carrying into the ones before it.
+0x0c064508	staticDestructorsRun	user	The C++ runtime at the program's end (gameMain's shutdown calls it): takes each entry of the list at 0x8C15C48C (next, destructor, object) from its head and calls the destructor with the object and -1. Nothing else in the program refers to the list's head.
+0x0c06456c	partialArrayDestroy	user	The C++ runtime for an array under construction, reached only through exception tables. Takes a record (start, element size, element count, destructor, elements built): when fewer elements were built than the count and the destructor is not 0, calls the destructor with -1 on each built element, from the last. Frees the record itself when the second argument is above 0.
+0x0c0645e8	divs32	user	Signed 32-bit division, from another runtime library than the SDK-named __divls. A test of the C++ gave -7 / 2 = -3.
+0x0c064688	divu32	user	Unsigned 32-bit division, from another runtime library than the SDK-named __divlu. A test of the C++ gave 0xFFFFFFF9 / 2 = 0x7FFFFFFC.
+0x0c064720	mods32	user	Signed 32-bit remainder, from another runtime library than the SDK-named __modls. A test of the C++ gave -7 % 2 = -1.
+0x0c0647d4	modu32	user	Unsigned 32-bit remainder, from another runtime library than the SDK-named __modlu. chainBonus picks a random sound with it.
+0x0c06486c	textureBufferSet	user	Sets the work buffer for loading textures from the disc and its size in bytes, which it rounds down to whole sectors of 2,048 bytes. gameMain calls it.
+0x0c06489c	textureBufferGet	user	The work buffer for loading textures and its size (textureBufferSet).
+0x0c0648b4	paletteFileLoad	user	Reads a palette file from the disc into the texture buffer and gives it to Ninja as palette data. Returns -1 on an error.
+0x0c0648fc	textureLoad	user	Loads one texture of a texture list at once by its attributes (attr & 0x5C000000): 0 from its file on the disc, 0x40000000 from PVR data in memory, other values only enter or link it in Ninja's texture management without loading data. Returns 1 when done and -1 on an error.
+0x0c064e5c	textureListLoad	user	Loads each texture of a texture list at once (textureLoad) and stops at the first that fails. Returns 1 when all are loaded, and -1 on an error or for a list without textures.
+0x0c064ea8	pvmReadBegin	user	Starts reading a PVM archive in memory: sets its start and the read position.
+0x0c064ebc	pvmRead	user	Returns the read position in a PVM archive and moves it on by a size.
+0x0c064ecc	pvmSeek	user	Moves the read position in a PVM archive: from the start with 0, from where it is with 1.
+0x0c064ef8	copy2	user	Copies 2 bytes, one at a time, so that neither address needs alignment.
+0x0c064f04	copy4	user	Copies 4 bytes, one at a time, so that neither address needs alignment.
+0x0c064f1c	pvmReadEntries	user	Reads a PVM archive's entries into a texture list: each entry's number into the low 16 bits of attr, its name into filename when the header has flag 1, and, when the header has flag 8 and attr has neither 0x800000 nor 0x1000000, its global index into texaddr with attr 0x800000.
+0x0c065074	pvmEntrySize	user	The size of each entry in a PVM archive's header, from the header's flags.
+0x0c0650b0	pvmNextTexture	user	Moves through a PVM archive's chunks to the next texture (PVRT), and gives Ninja the palettes (PVPL) on the way.
+0x0c065250	textureListFromPvm	user	Fills a texture list from a PVM archive in memory (magic PVMH) and loads its textures. Returns -1 on an error.
+0x0c065428	textureListLoadStep	user	Loads a texture list's textures in steps, one texture after the other (textureLoadStep). Returns 0 while it works, 1 when all are loaded and -1 on an error.
+0x0c065488	textureLoadStep	user	Loads one texture of a list in steps, from its file on the disc or from memory: runs the step function of the current state from the table at 0x8C0CF7F8 until a step clears the flag at 0x8C0CF7E4, which it does when it waits, ends or fails. Returns 0 while it works, 1 when done and -1 on an error.
+0x0c065508	textureStepCheck	user	Texture load step 1: ends with 1 when njCheckAttrGlobalIndex returns 1 (Ninja holds the texture already) and fails with -1 when it returns -1. Else on to step 2 for a texture in a file, or 6 for one in memory (attr 0x40000000).
+0x0c0655b8	textureStepOpen	user	Texture load step 2: opens the texture's file for reading into the texture buffer.
+0x0c065694	textureStepRead	user	Texture load step 3: asks the disc for the next sectors of the texture's file.
+0x0c06577c	textureStepWaitRead	user	Texture load step 4: waits for the disc's read.
+0x0c0658bc	textureStepFileHeader	user	Texture load step 5: reads a texture's PVR header from its file's data.
+0x0c06597c	textureStepMemoryHeader	user	Texture load step 6: reads the PVR header of a texture in memory.
+0x0c065a48	textureStepEntry	user	Texture load step 7: enters the texture into Ninja's texture management.
+0x0c065b20	textureStepUpload	user	Texture load step 8: loads a part of the texture into texture memory.
+0x0c065c38	textureStepWaitDma	user	Texture load step 9: waits for the texture's DMA, then reads the next part or ends.
+0x0c065d44	textureLoadStop	user	Stops a texture load of textureLoadStep: sets its state and the list's texture index to 0. Only when the load waits for a DMA (step 9) does it stop the disc read and close the file, and then returns -1 when gdFsStopRd fails. Else returns 1.
+0x0c065dbc	fileReadToBuffer	user	Reads a whole file from the disc into a buffer, if it fits. Returns -1 on an error.
+0x0c065e54	swap32	user	Swaps the byte order of a 32-bit word.
+0x0c0670b0	fileReadAbort	user	Stops the disc read that fileReadStart began, closes the file and frees its buffer.
+0x0c06775c	bankFileLoad	user	Loads one file of a bank's list: in steps from a task (fileReadStart, fileReadPoll, fileReadEnd), or at once (fileLoad).
+0x0c067868	bankLoadStep	user	Goes on through a bank's list from where it stopped, up to the end mark (type 5): models (modelFileLoad, types 0 and 1), files with texture names (bankFileLoad and njSetTextureName, types 2 and 3) and a directory (fileSetDir, type 4). Then loads the bank's texture list. Returns 1 while a load waits or another bank loads, 0 when the bank is loaded and -1 on an error.
+0x0c067b50	bankLoadTask	user	The task that loads a bank over frames (bankLoadStep). Ends when the bank is loaded, and shows the disc error screen on an error.
+0x0c067b8c	loadsAbort	user	Stops the disc loads: the file read of fileReadStart and, while a bank's textures load in steps, the texture load, after which it mounts the disc again (gdFsReMount). Clears the lock that lets one bank load at a time. gameRelease and gameEnterScene call it.
+0x0c067bd0	bankLoadFiles	user	Loads a graphics bank's list of files under a name. Shows the disc error screen while the bank still loads, returns at once when the loaded bank has that name already, and frees a loaded bank of another name (bankFree). Then loads at once (mode 0) or in a bankLoadTask over frames.
 0x0c067e8e	__at__6stringFUl	sdk-r2.00j sh4nlfzn:st_at.obj.elf (function)
+0x0c067ee8	bankLoad	user	Loads a bank's files at once (bankLoadFiles with mode 0).
+0x0c067f00	bankLoadWith	user	Loads a bank's files at once (bankLoadFiles with mode 0) and keeps a function in the bank that bankLoadStep calls after each entry of the list, when it is not 0. Its one caller passes 0.
+0x0c067f18	bankLoadAsync	user	Loads a bank's files in a task over frames (bankLoadFiles with mode 1).
+0x0c067f30	bankLoadMode	user	Loads a bank's files with a mode: 0 at once, else in a task over frames (bankLoadFiles).
+0x0c067f50	bankLoadState	user	Returns a bank's load state: -1 when it is empty (bankClear), 1 when bankLoadFiles has set it up, 2 while bankLoadStep loads it and 0 when it is loaded.
+0x0c067f64	bankFree	user	Frees what a bank holds, its models, motions and textures, and clears it (bankClear).
+0x0c068098	gameDataInit	user	Sets the game's data up at gameInit: clears the fade, gives Ninja the 4 palette files, loads bank 0 (SYSDAT), sets fogFadeApply as a callback of each frame and resets the fog.
+0x0c068188	fogReset	user	Turns the fog and the fade of fogFadeApply off, sets the fog mode, and sets Ninja's near and far clip.
+0x0c068344	colorsSplit	user	Splits four ARGB colors into their 16 channels, for the fade's mixing.
+0x0c0683d4	colorsMix	user	Mixes one ARGB color from a start and a target set of four channels (colorsSplit) by a fraction f: each channel is start * (1 - f) + target * f, cut to an integer.
+0x0c0684e0	fadeTask	user	The task of fadeTo: waits until no other fade runs, then moves the fade's four corners from their colors to the target colors over its frames.
+0x0c0686ec	fadeStop	user	Marks every fade task (fadeTask) of list 0 for removal and clears the flag of a running fade, unless a fade is held (DAT_8c1cb138, which gameOverCheck sets).
+0x0c06871c	fadeReset	user	Clears the fade's two flags: the one that fadeTask sets while it fades and the hold that stops fadeTo and fadeStop. Fade tasks that exist go on.
+0x0c068730	uvStripsFind	user	Finds the first textured strip chunk (type 0x41) of a chunk model and returns its strip count and data in a new block, for uvStripsScroll.
+0x0c068794	uvStripsScroll	user	Moves the texture coordinates of each vertex of a model's strips (uvStripsFind) by du and dv, which scrolls the texture over the model.
+0x0c068a08	modelNodeCount	user	Counts a model's objects and those of its children, for modelNodeTreeCreate.
+0x0c068a38	modelNodeTreeFill	user	Fills a tree of draw nodes, one for each object of a model, with the links to each node's first child and next sibling.
+0x0c068ae4	modelNodeTreeCreate	user	Makes a tree of draw nodes for a model of a bank (id: the bank in the high 16 bits, the model in the low 16 bits), one node for each object, or returns 0 when the allocation fails. The callers set some nodes' functions, which turn or scale a part, take its matrix, file its hit records or draw another model there.
+0x0c068b68	nodeTreeDraw	user	Draws a model through its node tree. For each object it moves, turns and scales the matrix by the object's values, calls the node's function with the caller's value, and draws the object's model with the node's draw function or the default one, unless the object has no model or its flag 8 is set. Then it draws the children in the object's matrix and goes on with the siblings.
+0x0c068c00	modelDrawNodeTree	user	Sets a model of a bank up (modelSetup) and draws it through a node tree (modelNodeTreeCreate, nodeTreeDraw), with the default draw function that flags & 0xf picks from the table at 0x8C0CFA90. Returns 0x3f and draws nothing when modelSetup leaves the model out, else 0.
+0x0c0691d8	spriteCornersVertical	user	A sprite vertex builder of the vertical screen, for the kinds without a scale (spriteDraw's flag bits 1 to 3): turns the corners by the sprite's angle and a quarter turn about the screen's centre.
+0x0c0692ec	spriteCornersVerticalScaled	user	A sprite vertex builder of the vertical screen, for the kinds with a scale: scales the corners, then turns them by the sprite's angle and a quarter turn about the screen's centre.
+0x0c069418	spriteCorners0	user	The sprite vertex builder of the horizontal screen for kind 0 (spriteDraw's flag bits 1 to 3): places the corners at the position, turned by the angle when it is not 0, and fits them to the screen's aspect.
+0x0c06969c	spriteCorners2	user	The sprite vertex builder of the horizontal screen for kind 2 (spriteDraw's flag bits 1 to 3): places the corners at the position, turned by the angle when it is not 0, and scales the corners, not the position, by the screen's aspect.
+0x0c06985c	spriteCorners4	user	The sprite vertex builder of the horizontal screen for kind 4 (spriteDraw's flag bits 1 to 3): places the corners at the position, turned by the angle when it is not 0, and fits the position, not the corners, to the screen's aspect about the screen's centre.
+0x0c069a6c	spriteCorners6	user	The sprite vertex builder of the horizontal screen for kind 6 (spriteDraw's flag bits 1 to 3): places the corners at the position, turned by the angle when it is not 0.
+0x0c069c0c	spriteCorners1	user	The sprite vertex builder of the horizontal screen for kind 1: as spriteCorners0, with the sprite's x and y scale.
+0x0c069ecc	spriteCorners3	user	The sprite vertex builder of the horizontal screen for kind 3: as spriteCorners2, with the sprite's x and y scale.
+0x0c06a09c	spriteCorners5	user	The sprite vertex builder of the horizontal screen for kind 5: as spriteCorners4, with the sprite's x and y scale.
+0x0c06a2d4	spriteCorners7	user	The sprite vertex builder of the horizontal screen for kind 7: as spriteCorners6, with the sprite's x and y scale.
+0x0c06a540	textStepsVertical	user	Gives textDraw two vectors of 16 on a vertical screen, turned by the text's angle and a quarter turn: the advance of a full-width character and the side of a character's quad from its top to its bottom.
+0x0c06a5c0	textSteps	user	Gives textDraw two vectors of 16 on a horizontal screen, turned by the text's angle: the advance of a full-width character and the side of a character's quad from its top to its bottom.
+0x0c06a630	textStepsVerticalScaled	user	As textStepsVertical, for a text with a scale.
+0x0c06a6dc	textStepsScaled	user	As textSteps, for a text with a scale.
+0x0c06aa40	fontGlyphGet	user	Copies the boot ROM font's 24-dot glyph (72 bytes) of a Shift-JIS character for a text line's texture and returns 0. When the font's semaphore is taken (syBtFntChkSmph) it copies nothing and returns -1. The port replaces it (port/src/bios.cpp): without a ROM image, macOS's Hiragino draws the glyph.
+0x0c06aaa0	textGlyphCopy	user	Copies a 24-dot glyph into a text line's texture at x and y in one color, each set dot also onto the dot right of it, the dot below it and the dot below and right of it, inside the 24-dot cell. The port wraps it (port/src/text.cpp).
+0x0c06ab78	textLineTexture	user	Makes a texture of a line of Shift-JIS text with the ROM font's glyphs, for the menus' help, CONFIG and the messages. The port wraps it for ENGLISH TEXT (port/src/text.cpp).
+0x0c06aebc	textLineFree	user	Frees a text line's texture (textLineTexture).
+0x0c06aee4	textLineDraw	user	Draws a text line's texture as a sprite, with the sprite vertex builder and the blending that its flags pick.
+0x0c06af94	polygonTurn	user	Turns the points of a 2D polygon by a quarter turn about the screen's centre and fits them to Ninja's aspect. The draw functions call it on a horizontal screen and draw the points unturned on a vertical one.
+0x0c06b02c	screenPlace	user	Gives a screen position for the screen's orientation: mode 0 takes x and y from the top left, mode 1 from the screen's centre (320, 240). A horizontal screen keeps the position, a vertical one turns it by a quarter (640 - y, x for mode 0). Other modes write nothing.
+0x0c06b218	fogFadeOff	user	Turns off what fogFadeApply applies: Ninja's fog, or its fade, by the mode.
+0x0c06b258	fogTableSet	user	Makes the fog's table from a near and a far depth (njGenerateFogTable3).
+0x0c06b268	fogColorSet	user	Sets the fog's color from red, green and blue.
+0x0c06b28c	fogFadeApply	user	A callback of each frame (gameDataInit): while it is on, applies the fog table, or Ninja's fade at its level, by the mode.
+0x0c06b2e0	fadeLevelSet	user	Sets the level of Ninja's fade that fogFadeApply applies in the fade mode.
+0x0c06b2ec	screenDarken	user	Draws a black polygon with an alpha over the whole screen.
+0x0c06b3e8	lightsTurnApply	user	Turns the lit lights of Ninja's multi-light models into the view through a unit matrix, turned by a quarter (njRotateZ by -0x4000) on a vertical screen. Bit 0 does it for the Easy models' lights and bit 1 for the Simple models'.
+0x0c06b658	lightsExtraClear	user	Sets the count of the frame's extra lights (lightAdd) to 0. gameTaskFrame calls it before it runs the task lists, except while pauseState is 1.
+0x0c06b664	lightAdd	user	Adds one of up to 4 extra point lights for this frame, as light 3 to 6 of the Easy and the Simple multi-light models, with a position, a color and two ranges. With 4 lights added it does nothing.
+0x0c06b844	lightsMix	user	Sets the light values to a mix of two light settings by a fraction.
+0x0c06b97c	lightsFadeTask	user	The task of lightsFadeTo: mixes the lights from the start setting to the target one over its frames (lightsMix), then ends.
+0x0c06ba44	lightsFadeStart	user	Makes the task that mixes the lights from one setting to another over a number of frames (lightsFadeTask).
+0x0c06bb04	lightsFadeTo	user	Moves the lights from their current setting to another over a number of frames. The stages change their light with it.
+0x0c06be2c	soundClose	user	Stops every sound and closes the sound library's 8 sequence players and 20 one-shot players, at gameRelease.
+0x0c06be84	soundBankFree	user	Frees a slot of soundBankLists.
+0x0c06c3f4	sequenceWaitTask	user	The task of sequencePlay's mode 1: waits until a slot of the sound's range is free, then starts the sequence and ends.
+0x0c06c44c	sequenceWaitInit	user	Sets up sequenceWaitTask's data: the sound id and the range of slots that its bank list's entry gives.
+0x0c06c48c	sequenceSetSpeed	user	Sets the speed of the sequence in a slot (sdMidiSeqSetSpeed).
+0x0c06c4a8	sequenceStop	user	Stops the sequence in a slot and frees the slot, when the slot is in use and soundOff is not set.
+0x0c06c508	sequenceSetVolume	user	Sets the volume of the sequence in a slot over a time (the sound library's MIDI volume, which the port's NO MUSIC wraps).
+0x0c06c524	sequenceSetPan	user	Sets the pan of the sequence in a slot from a position (soundPan), when it changed.
+0x0c06c5e4	sequencePlay	user	Starts a sequence by its sound id unless soundOff is set: at once with mode 0, or with mode 1 as soon as one of its slots is free (sequenceWaitTask). Returns the slot with mode 0, else -1. The mode select and the chapters start their music with it.
+0x0c06c868	effectsStopAll	user	Stops every one-shot sound and frees their slots.
+0x0c06c8b4	effectSetPosition	user	Sets the pan and the volume of the one-shot sound in a slot from a position, when the pan changed and soundOff is not set.
+0x0c06c9bc	effectStop	user	Stops the one-shot sound in a slot and frees the slot, when the slot is in use and soundOff is not set.
+0x0c06ca1c	effectFadeOutTask	user	The task of effectFadeOut: counts its frames down, then stops the sound and ends.
+0x0c06ca48	effectFadeOut	user	Unless soundOff is set, fades the one-shot sound in a slot out over a number of frames, then stops it (effectFadeOutTask).
+0x0c06cae4	soundStopAll	user	Stops every sequence and one-shot sound (soundStopSequences, effectsStopAll) and sets the speed of slot 0's sequence player to 0.
+0x0c06cda4	sequencePlaying	user	The slot when it still plays the sequence with this sound id, else -1.
+0x0c06cde8	effectPlaying	user	Returns the slot when it still plays the one-shot sound with this sound id, and -1 when the slot is free or plays another sound. For a slot outside 0 to 19 it returns no defined value.
+0x0c06ce2c	vmuImageClear	user	Clears the image of a port's VMU screen.
+0x0c06ce50	bitsReverse16	user	Returns the low 16 bits in reverse order. vmuImageSet and vmuChainShow turn a VMU image round with it, 16 pixels of a row at a time.
+0x0c06ce88	vmuImageSet	user	Copies a 48 by 32 pixel image into VMU screen 0 or 1, turned round when pdLcdGetDirection returns nonzero. It asks pdLcdGetDirection about port 1 for screen 0 but about port 0 for screen 1, whose VMU is at port 7.
+0x0c06cf58	vmuChainShow	user	Shows a player's chain on the VMU's screen: its digits over an image.
+0x0c06d0a8	vmuScreensInit	user	Clears both VMU screens' images (vmuImageClear) and states, at gameInit.
+0x0c06d2d0	vmuScreensUpdate	user	Runs both VMU screens (vmuScreenUpdate): at each frame in gameFrame, and in gameEnterScene while an autosave writes and for 30 frames after it succeeds.
+0x0c06d3cc	vectorAngles	user	The two Ninja angles of a direction: the turn about y from atan2(-x, -z), and the pitch from y over the length in x and z.
+0x0c06d43c	pointsAngles	user	The two Ninja angles of the direction from one point to another (vectorAngles).
+0x0c06d6a8	pathIntervals	user	Returns a new block with the intervals between a path's distances at consecutive points, or 0 without memory. pathCreate passes it to pathSlopes and pathCurves.
+0x0c06d748	pathSlopes	user	The slope of a path's value between each two points: its change over the interval, for the straight segments.
+0x0c06d7c0	pathCurves	user	Solves a natural cubic spline through one value of a path's points, for the curved segments: the second derivatives divided by 6, with 0 at both ends. Returns -1 when it has no memory, else 0.
+0x0c06e8cc	cardInit	user	Starts the memory card library (buInit with capacity 0xF and drives 1), at gameInit.
+0x0c06eaf0	autosaveDraw	user	Draws AUTO SAVE... and renders, while a scene change saves to the card.
+0x0c06eb48	autosaveFailedDraw	user	Draws AUTO SAVE...FAILED and three lines of Japanese text that say the autosave failed and stops from now on, renders, and waits 5 vertical blanks. gameEnterScene calls it after a failed autosave and then waits 720 more.
+0x0c06ec9c	padRepeatUpdate	user	Computes a player's buttons with repeat for the name entry: each of 11 buttons fires when it goes down and, after 15 frames held, every second frame. The result goes to the player's word at 0x8C1D13D4.
+0x0c06ed3c	padRepeatsUpdate	user	Runs the button repeat for both players (padRepeatUpdate). nameEntryInput calls it each time it runs.
+0x0c06ed54	padRepeatReset	user	Clears both players' button repeat counters and stores its argument in the byte at 0x8C1D1390. nameEntryTask calls it with 0 when a name entry starts.
+0x0c06ed80	easeWordTask	user	The task of easeWord. With a lock, it first waits until the lock is 0 and takes it. Then it moves the word one frame along the curve each frame, and at the end it sets the word to the value, frees the lock unless flag 0x80 leaves that to easeWordEnd, and ends.
+0x0c06ee30	easeWordEnd	user	Frees the lock at the removal of easeWord's task.
+0x0c06ef74	easeFloatEnd	user	Frees the lock at the removal of easeFloat's task.
+0x0c06f030	creditsDraw	user	Outside the attract mode, draws CREDIT(S) and the count, or FREE PLAY, at the screen's edge in the mode select and while the game is paused outside the tutorial, and fades it out over 30 frames after. Holding X and Y in the pause hides it.
+0x0c06f44c	demoSkipCheck	user	In the attract mode (gameDemo) outside the title, Start on either pad stops every sound and requests the title, when no scene request is pending. Returns 1 then, else 0.
+0x0c06f52c	vibrationTaskDraw	user	The draw of a vibration's task: ends the task while the game is paused.
+0x0c06f700	vibrationRequestsClear	user	Clears the vibration units' requests, at gameInit.
+0x0c06f970	chapterReachedRaise	user	Raises chapterReached for the difficulty to the current chapter.
+0x0c06f9a0	chapterReachedUpdate	user	At the start of chapters 2 to 5: raises chapterReached when the players got there without a continue (both players in a two-player game), unless the game is a practice or a demo.
+0x0c06fa48	playersKeep	user	Keeps playersInGame and gamePrototype, clears both and starts player 1 (playerStart). stageStart calls it in scene 11, and playersRestore undoes it.
+0x0c06fa7c	playersRestore	user	Gives back playersInGame and gamePrototype that playersKeep kept, applies the options and starts the players again. In the prototype mode each ship gets 500 energy minus 200 for each step of difficulty.
+0x0c07028c	chainReset	user	Clears a player's chain and its current set, and tells the VMU's screen (event 0).
+0x0c070878	scrollStopTask	user	The task of scrollStopAt: once scrollPosition reaches the braking point that scrollStopAt computed, sets scrollTarget to 0 and scrollStep to the deceleration, and ends.
+0x0c070a88	playersJoinCheck	user	Lets either player join with Start (playerJoinCheck). modeSelectUpdate calls it at the end of each run.
+0x0c070aa0	continueCountSound	user	Plays the sound of the continue's count for continueTimer (soundPlay): sound 0x37 at 0 down to 0x2e at 9.
+0x0c070afc	stageDraw	user	The draw of the stage's task. In the tutorial outside the attract demo, Start or B leaves for sceneNext, in a trial game only Start of a player who was in the game. Else, outside the attract demo, it counts continueTimer down during a continue, each count at most 128 frames with its sound (continueCountSound), shows CONTINUE while both ships are out, and lets a player who is out join with Start and a credit (playerJoinCheck), which unlocks the player's pause and sets pauseEnd while pausePlayer is 0.
+0x0c070fe8	stageEnd	user	Frees the camera's path at the removal of the stage's task.
+0x0c071f78	nameEntryFilter	user	Replaces a name before it enters the rankings: a blank name, AAA and three names of X become TRE, the default entries' name, and a rude word becomes H !.
+0x0c0720d4	nameEntryFinish	user	Ends a player's name entry: filters the name (nameEntryFilter) and puts the scores into the rankings (rankingAdd).
+0x0c07210c	nameEntryChar	user	Returns the letter of a name entry's cursor position: A to Z for 0x41 to 0x5a, the digits 0 to 9 for 0x5b to 0x64, the signs ! ? @ # $ % & for 0x65 to 0x6b, and a space for the keys SP, BS and ED (0x6c to 0x6e) and any other value.
+0x0c072188	nameEntryIndex	user	Returns the name entry's cursor position of a letter, nameEntryChar backwards for A to Z, the digits and ! ? @. Any other letter, also # $ % & and the space, gives 0x6c, the SP key.
+0x0c0721d0	nameEntrySpaceDraw	user	Draws the name entry's SP key, which enters a space, as two letters.
+0x0c072254	nameEntryBackDraw	user	Draws the name entry's BS key, which takes the last letter back, as two letters.
+0x0c0722d8	nameEntryEndDraw	user	Draws the name entry's ED key, which ends the entry, as two letters.
+0x0c072b7c	nameEntryBack	user	Takes the name entry's last letter back, with B or the BS key.
+0x0c072bc8	nameEntryConfirm	user	Enters the name entry's letter at the cursor, or after the third letter ends the entry (nameEntryFinish).
+0x0c072c28	nameEntryEnd	user	Fills the name from the cursor's position with spaces and ends the entry (nameEntryConfirm). nameEntryInput calls it for the ED key, and nameEntryTask when the entry's 1860 frames run out.
+0x0c072c68	nameEntryInput	user	A player's input in the name entry each frame: left and right move the cursor with repeat, or at the fourth position switch between BS and ED. A or C presses the key at the cursor, which enters a letter or a space, takes a letter back (BS) or ends the entry (ED), and B takes a letter back.
+0x0c072f00	chapterScoresStore	user	Keeps a player's scores for the ranking lists (chapterScores): the total in entry 0, and in the chapter's entry (sceneCurrent - 5) the total minus the earlier chapters' entries and the chapter's longest chain (chainMax). resultsStep calls it for both players and playerOut when a player loses the last ship.
+0x0c072fe8	chapterScoresTotal	user	Fills the third block of chapterScores, for the two-player lists, entry by entry from both players' blocks: the score as their sum (scoreTotal) and the chain as the sum of their chains. First it sets each player's entry 0 to the player's score with a chain of 0.
+0x0c0732e8	pauseHelpFree	user	Frees one of the pause menu's two textures of its help line.
+0x0c073320	pauseHelpSet	user	Makes the texture of a new help line for the pause menu in its other buffer, unless the line is shown already.
+0x0c073374	pauseHelpDraw	user	Draws the pause menu's help line on its panel.
+0x0c0733e4	pauseHelpFreeBoth	user	Frees both textures of the pause menu's help line, also at the removal of its task.
+0x0c073404	pauseMenuReset	user	Sets the pause menu back to its first item and frees its help line.
+0x0c073428	pauseStartCheck	user	Lets the player who paused end the pause with Start, once the Start that paused was let go: it clears the player's bit in pausePlayer, and pauseMenuDraw then ends the pause. It does nothing after Restart or Quit was chosen.
+0x0c07348c	pauseMenuText	user	Draws a text of the pause menu at a place, turned for the vertical screen. With the third argument set it centers the text across the place (textDraw 0x500), else the text starts there (0x400).
+0x0c0734f4	pauseRestart	user	The pause menu's Restart, in the practice mode: stops the sound, sets the continues of the players in the game to 0 and puts them in again (playerJoin), with new scores and lives, and requests the current scene again from its first part (stagePart 0).
+0x0c0735e8	pauseQuit	user	The pause menu's Quit: stops the sound, adds the play time (playTimeAdd) and requests a save (saveRequest) when that returns 1, ends the game (gameDemoSet) and changes to the title (scene 4).
+0x0c073660	pauseMenuStep	user	Opens Adjust Console from the pause menu: plays sound 0x46 and sets the menu's screen (byte 3) to 1.
+0x0c07367c	pauseCursorMove	user	Moves the pause menu's cursor up or down, round from end to end, with its sound.
+0x0c0736f4	pauseMenuDraw	user	The draw of the pause menu's task in list 6, which runs only while the game is paused: --- PAUSE MENU --- with Continue Game, Restart (only in the practice mode), Adjust Console and Quit, and a help line, for the player in pausePlayer. Adjust Console moves the screen's position by 4 with the directions, A or C sets it back to 0 and B goes back. When pausePlayer is 0 it resets the menu and ends the pause (pauseEnd).
+0x0c074088	pauseMenuCreate	user	Makes the pause menu's task in list 6 (pauseMenuDraw, removed by pauseHelpFreeBoth). stageStart calls it outside the attract demo and the tutorial.
+0x0c075368	demoInputRead	user	Gives a player's ship its input for a frame from the recorded input (demoInput), held and newly pressed (playerInput). An entry is the input and a count n for n + 1 frames, or one byte with 0x80 set for one frame. After the recording's end the input is 0.
+0x0c075418	fogMix	user	Sets the fog's stored setting (DAT_8c1d14ec to DAT_8c1d14f8) to a mix of two settings by a fraction: the color, held to 0 to 255, the near and far depths and the fade's level. fogFadeTask applies it.
+0x0c075500	fogFadeTask	user	The update of the task that fogFadeStart makes in list 5: each frame it moves the fraction on by 1/frames and mixes the fog (fogMix), and past 1 it takes the target setting and ends. Each frame it applies the setting: the fog's table, its color and the fade's level.
+0x0c075604	fogFadeStart	user	Makes the task that mixes the fog from one setting to another over a number of frames (fogFadeTask).
+0x0c07568c	fogFadeTo	user	Moves the fog from its current setting to another over a number of frames. The stages change their fog with it.
+0x0c075720	shipModelDraw	user	Draws a ship's model at its motion's frame, in its polarity's color, flashing while invulnerable. It files the ship's hit record in list 0 unless forced or flags hold 0x08, and its field's in list 1 unless they hold 0x20 while byte 0x0f (unknown_0d[2]) is 0.
+0x0c075838	playerFieldDraw	user	Draws a ship's field, the sprite of its polarity around it, its size from fieldGrowth with a random flicker.
+0x0c075900	playerDrawOnPath	user	Draws a ship in the camera's mode 0: through the camera path's position and angles, at (x, z, -y) (shipModelDraw).
+0x0c0759b8	playerShieldDraw	user	Draws the two sprites of a new life's invulnerability, 0x11600 and the player's own (0x11601 or 0x11602), fading them out in the last 15 frames of Player.invulnerable. playerDrawFlat calls it while invulnerable is not 0.
+0x0c075a90	playerDrawFlat	user	Draws a ship in the camera's flat mode 1: at (x, y, z - depth), with its field (playerFieldDraw), its invulnerability's sprites while Player.invulnerable is not 0 (playerShieldDraw), and its model turned by 0x4000 about x and by Player.rotation about z (shipModelDraw).
+0x0c075e3c	playerReleaseRing	user	Makes the shock ring (shockRingCreate, 31 segments) around a ship when it releases its homing lasers (playerButtons), in its polarity's color.
+0x0c076aac	shipsPushApart	user	The task of shipsPushStart: while neither ship is out (state 4) and the two are closer than 6.25, it gives each a push away from the other (playerPushSet), the stronger the closer they are.
+0x0c076bb0	shipsPushStart	user	Makes the task that pushes the two ships apart (shipsPushApart), at stageStart.
+0x0c076bd8	deathSparkDraw	user	Draws the spark of a dying ship (deathSparkCreate).
+0x0c076c6c	deathSparkUpdate	user	The update of a dying ship's spark (deathSparkCreate): while its size is above 2.5 it makes 4 particles a frame (effectParticles). It shrinks by 0.125 a frame down to 1.5, then fades out by 0x30 a frame and ends, and it takes a new random angle every second frame.
+0x0c076d24	deathSparkCreate	user	Makes the spark of a dying ship at its position, with particles.
+0x0c076dd4	playerDeathEffect	user	Makes the effects of a ship's death at its position: a ring of 8 explosions (explosionRingKind2), an explosion burst (explosionBurst), its spark (deathSparkCreate) and a vibration of the player's controller (vibrationStart). playerUpdate calls it when the ship's hp is 0 or the ship lies in the scenery.
+0x0c077070	playerPushSet	user	Sets the push that moves a ship (pushX, pushY).
+0x0c077088	shotSparkDraw	user	Draws a shot's spark (shotSparkCreate).
+0x0c0770e8	shotSparkUpdate	user	The task of a shot's spark: moves it along y by its speed for two frames, steps its sprite once on the second frame, and ends on the third.
+0x0c07712c	shotSparkCreate	user	Makes the spark of a shot that hit, a sprite in the shot's color, from playerShotDraw.
+0x0c07774c	angleDiff	user	Returns the first angle minus the second, wrapped to -0x7FFF to 0x8000.
+0x0c0782f4	releaseFlareDraw	user	Draws a release's flare at the side of the ship (releaseFlareCreate).
+0x0c0783b8	releaseFlareUpdate	user	The task of a release's flare: shrinks it, then fades it out and ends.
+0x0c0784ac	releaseFlareCreate	user	Makes the flare at one side of a ship (0 or 1) when it releases its homing lasers, in its polarity's color. playerButtons makes the second side only with 20 energy or more.
+0x0c078534	turnEffectDraw	user	Draws the sprite of playerTurnEffect at the ship, sized by the sine of its angle times 1.8.
+0x0c078604	turnEffectUpdate	user	The task of playerTurnEffect: it follows the ship while its sprite grows and its alpha rises to 100. Once the ship's flag 0x20 has been clear and is set again (its next turn), it fades the sprite out while it grows on, and ends. It ends at once when flag 0x04 is in the ship's flags or forced.
+0x0c078778	absorbGlowDraw	user	Draws the glow of absorbGlowCreate at the ship: sprite 0x10901, its size falling from 2.5 to 0 as its angle grows, its alpha the angle / 64 up to 0x50.
+0x0c078824	absorbGlowUpdate	user	The task of an absorb's glow: follows the ship and ends on its 32nd frame, or at once when flag 0x04 is in the ship's flags or forced.
+0x0c0788c8	absorbGlowCreate	user	Makes the glow around a ship in its polarity's color, a task in list 2 (absorbGlowUpdate, absorbGlowDraw). playerAbsorb makes it when playerEnergy mod 10 plus the absorbed amount reaches 10, and not when the energy is already full.
+0x0c078c30	cameraTargetSet	user	Gives the camera a target view at once: its target and a blend of 1.
+0x0c078c4c	cameraTargetRelease	user	Moves the camera's blend to 0 over a number of frames (easeFloat), back from its target view to its own. The ease uses the camera's lock byte (unknown_1), so it waits for an earlier ease on that lock and holds it until it ends.
+0x0c078dc8	modelListDraw	user	Draws a list of a bank's models, each at its own position, angles and scale.
+0x0c079c10	hitSlotUsed	user	Whether a slot of hitSlots holds an object whose removal has not started (used is 1). playerLaserUpdate checks its target with it.
+0x0c079c28	polygonBounds	user	Finds the bounds of a polygon's corners (Polygon).
+0x0c079c8c	polygonInit	user	Sets a polygon up with its corners and their count, and finds its bounds.
+0x0c079ca0	polygonRotate	user	Sets a polygon's corners from others turned by an angle, and finds its bounds. The stages turn their scenery's outlines with it.
+0x0c07a044	bossDeathDraw	user	Draws a boss's destruction at the matrix that it keeps of the boss: two sprites 0x10A02 that grow and fade in until the vibration, then two sprites 0x10A00 that fade out. It also stores the matrix's position in stage coordinates for bossDeathUpdate (matrixTranslationStage).
+0x0c07a19c	bossDeathVibration	user	Makes a player's controller vibrate at a boss's destruction.
+0x0c07a1cc	bossDeathUpdate	user	The task of a boss's destruction. For 180 frames it copies the boss's matrix, pulls particles into it (chargeParticleCreate) and flashes the fade, then it vibrates the controllers, clears the enemies (enemiesClear), plays its sound and makes shock rings, explosion rings and particles. When its glow has faded out and 92 more frames have passed, it lowers the stage's lock (stageUnlock) and ends.
+0x0c07a6c8	bossDeathCreate	user	Starts a boss's destruction, a task in list 4 (bossDeathUpdate, bossDeathDraw) with level 0x81, so that the enemiesClear of bossDeathUpdate leaves it. It takes the boss's task, the address of the boss's matrix and a scale for the effects. The bosses' tasks call it 180 frames into their own explosions, one of them after 800 frames.
+0x0c07a740	resultsTextDraw	user	Draws a text of the results, its alpha from the object that it follows.
+0x0c07a768	resultsTextUpdate	user	The task of a text of the results: ends with the object that it follows, or when that object's alpha reaches 0.
+0x0c07a79c	resultsTextCreate	user	Makes a text at a place on the screen with a scale (resultsTextDraw), for resultsStep and remainBonusTask. It takes its alpha from byte 2 of its owner's data and ends with its owner (resultsTextUpdate).
+0x0c07a814	resultsPlayRank	user	Sets YOUR PLAY RANK (byte 1 of the results) to the number of entries in the rank table above the score. A player whose flag in DAT_8c1d1444 is still set (no shot and no release since playerScoresClear) gets rank 0x0C instead, and two players get 0x0D only when both flags are set. Such a rank also counts up the player's byte in DAT_8c1d1446.
+0x0c07b000	remainBonusTask	user	The task of REMAIN BONUS: 91 frames after it starts it shows REMAIN BONUS, 46 frames later the PLAYER STOCK line, adds 500000 points for each life left of each player in the game (scoreAdd) and writes the new scores to chapterScores. After 151 more frames it fades its texts out and ends.
+0x0c07b1a0	remainBonusStart	user	Unless the game is over, makes the task of REMAIN BONUS in list 0 (remainBonusTask) and sets stageEvents flags 0x02 and 0x08. On both ships it sets forced flags 0x02 and 0x08, clears their release and clears the shot, turn and release bits (0x10, 0x20, 0x40) of their input.
+0x0c07b5c8	hpGaugeBarPlace	user	Places one quad of the HP gauge between two lengths (0 to 400) and gives its four corners one color, for the screen's orientation and optionScreenY.
+0x0c07b6ac	hpGaugeBarsUpdate	user	When its state byte (0xC6) is 0, which hpGaugeSet sets, it places the HP gauge's three quads (hpGaugeBarPlace) from its values at 0xC0 and 0xC2, 400 to a full bar, in colors from the tables at 0x8C0D13FC and 0x8C0D1400. 92 frames later it sets the gauge back to one empty bar. It draws nothing: hpGaugeDraw calls it and then draws the quads.
+0x0c07ba58	matrixCalcPointStage	user	A point that the current matrix transforms (matrixCalcPoint), with stageCamera's depth added to its z: the point in the stage's coordinates.
+0x0c07ba84	matrixTranslationStage	user	The current matrix's position (matrixTranslation), with stageCamera's depth added to its z: the position in the stage's coordinates.
+0x0c07bbbc	enemyModelDrawTree	user	Draws an enemy's model through a node tree (modelDrawNodeTree), with its color and its hit flash (enemyModelFlags).
+0x0c07bbe8	enemyModelDrawEach	user	Draws an enemy's model with a function for each node (modelDrawNodes), with its color and its hit flash (enemyModelFlags).
+0x0c07bfd8	enemyKill	user	The common part of an enemy's destruction: an explosion with a ring of 8 more and particles (explosionBurst), its death bullets (enemyDeathBullets) and the kill for the chain (chainCount).
+0x0c07c41c	absorbSparkDraw	user	Draws the spark of an absorbed bullet (bulletAbsorb).
+0x0c07c558	absorbSparkUpdate	user	The task of an absorbed bullet's spark: pulls it toward its ship, shrinks it and lowers its alpha by 16 each frame. It ends below 16.
+0x0c07ca3c	bulletSpinFireAt	user	Fires a bullet that turns (bulletSpinCreate) at an angle with a speed.
+0x0c07cd90	bulletSpriteFireAt	user	Fires a bullet with a sprite (bulletSpriteCreate) at an angle with a speed.
+0x0c07ce04	bulletSpriteFireAt10404	user	bulletSpriteFireAt with sprite 0x10404.
+0x0c07ce2c	bulletSpriteCreate10508	user	bulletSpriteCreate with sprite 0x10508 and a velocity.
+0x0c07ce54	bulletSpriteFireAt10508	user	bulletSpriteFireAt with sprite 0x10508.
+0x0c07ce7c	bulletSpriteFireAt10504	user	bulletSpriteFireAt with sprite 0x10504.
+0x0c07d1d4	bulletFireAt10308	user	bulletFireAt with sprite 0x10308.
+0x0c07d1f0	bulletFireAt1030c	user	bulletFireAt with sprite 0x1030C.
+0x0c07d20c	homingBurstDraw	user	Draws the burst where a ship absorbs part of a homing bullet (homingBurstCreate).
+0x0c07d284	homingBurstUpdate	user	The task of a homing bullet's burst: each frame it lowers its alpha by 0x14 and grows its scale by 0.1. It ends when its alpha is below 0x15.
+0x0c07d2c8	homingBurstCreate	user	Makes a burst in a homing bullet's color at its position, with alpha 0xff and scale 0.25. homingBulletUpdate makes one each frame that the bullet's hit record shows a hit.
+0x0c07d354	homingTrailDraw	user	Draws a piece of a homing bullet's trail (homingTrailCreate).
+0x0c07d3c0	homingTrailUpdate	user	The task of a piece of a homing bullet's trail: it lowers its alpha by 8 each frame and ends when its alpha is below 9.
+0x0c07d3e8	homingTrailCreate	user	Makes a piece of a homing bullet's trail at its position, in its color.
+0x0c07d494	homingBulletDraw	user	Draws a homing bullet (homingBulletCreate): its sprite and a glow sprite 0x10a02. It also files the bullet's hit record in hit list 4 (hitFile).
+0x0c07d5f4	homingBulletUpdate	user	The task of a homing bullet. It slows by 0.05 per frame to its turning speed, then turns toward a lagging copy of its ship's position, with a turn rate that grows by 0x20 per frame up to its highest for 75 frames and then falls to 0. Within 0x400 of that direction its speed moves toward its straight speed, else toward its turning speed. Each frame that its hit record shows a hit, it gives 1 energy (playerAbsorb) and a push along its direction to the ship that hitBy bit 0x08 picks, and makes a burst (homingBurstCreate). When such a hit leaves it at 0 hit points, or once stageEvents has 0x02, it shrinks and fades. It ends outside x -32.5 to 32.5 or y -42.5 to 42.5.
+0x0c07da28	homingBulletCreate	user	Makes a homing bullet in list 4: white (0x11) or black (0x22), with 5 hit points, that homes on the ship that targetPlayerIndex picks for its position. The arguments: the color (0 white), the position, the highest turn rate, the angle, the turning speed, the straight speed and the first speed.
+0x0c07db60	homingBulletFire	user	homingBulletCreate with a turn rate of 0x400, a turning speed of 0.625 and a straight speed of 0.925.
+0x0c07e404	laserFrontDraw	user	Files a laser front's hit record in hit list 4 while its laser's alpha is 0xff, from the firing until the fade-out. Ends a front that is past the point where the laser stopped.
+0x0c07e490	laserFrontUpdate	user	The task of a laser's front. It moves 2 units further along the laser each frame and raises the laser's length to its own distance. Scenery at its middle or at either side of the laser's width stops the laser there. A ship of its color absorbs it (playerAbsorb, 1 energy), gets a push and stops the laser there. It ends with its laser or outside x -35 to 35, y -45 to 45.
+0x0c07e708	laserFrontCreate	user	Makes a front at the origin of an enemy's laser, with a hit attribute and a step per frame, which finds how far the laser reaches. enemyLaserUpdate makes one each frame from the firing on.
+0x0c07e8cc	enemyLaserDraw	user	Draws an enemy's laser (enemyLaserCreate) with its length from its fronts.
+0x0c07f054	enemyLaserUpdate	user	The task of an enemy's laser. It charges with particles for its charge frames, then fires along the angle that its angle pointer gives, with a shock ring unless flag 0x01 is set, and from then on sends a front each frame (laserFrontCreate). It fades and ends once its end byte reads 0x80, and ends at once when its owner's task ends.
+0x0c07f454	enemyLaserCreate	user	Makes an enemy's laser in list 4. The arguments: its width, flags (0x01 fires without a shock ring), its hit attribute (0x11 white or 0x22 black), the owner's task, pointers to a position, an angle and an end byte, and its charge frames.
+0x0c07f5d0	enemyLaserFire	user	enemyLaserCreate with width 1.0 and 60 frames of charge.
+0x0c07f5f8	enemyLaserFireThin	user	enemyLaserCreate with width 0.5 and 60 frames of charge.
+0x0c07f6cc	enemyInitUnaimed	user	Fills an enemy's common part (enemyInitCommon), for an enemy that homing lasers cannot aim at.
+0x0c07f71c	enemyTreeDraw	user	Draws an enemy with a node tree (enemyTreeCreate): model 0x10002 at its motion frame through enemyModelDrawEach, unless flag 0x01 of byte 0x69 is set. When the model is in view and flag 0x02 is clear, it files the hit record in hit list 3 and draws a glow sprite 0x10a02 in its color.
+0x0c07f87c	enemyTreeUpdate	user	The task of an enemy with a node tree (enemyTreeCreate). At 0 hit points it calls enemyDestroyed, plays one of 8 sounds and ends. Otherwise it runs its function at 0x74, ends when that returns nonzero, and else steps its motion by 2 frames unless flag 0x01 of byte 0x69 is set.
+0x0c07f938	enemyTreeRemove	user	Frees an enemy's node tree when its task ends.
+0x0c07f944	enemyTreeCreate	user	Makes an enemy in list 3 from a record with its position, angles and color (enemyInit), with 2 hit points, model 0x10002 and a node tree for it (modelNodeTreeCreate). It adds extra bytes of the given size at 0x7c, and the caller sets its function at 0x74.
+0x0c07f9f4	enemyModel3Draw	user	Draws an enemy with model 0x10003 at a frame of its motion (enemyModel3Create). When the model is in view, it draws a glow sprite 0x10a02 in its color and, unless flag 0x02 of byte 0x69 is set, files the hit record in hit list 3.
+0x0c07fb38	enemyModel3Update	user	The task of an enemy with model 0x10003 (enemyModel3Create). At 0 hit points it calls its function at 0x70 when set, calls enemyDestroyed, plays sound 8 (9 with flag 0x08 of byte 0x69) and ends. Otherwise it runs its function at 0x74, ends when that returns nonzero, and else steps its motion by 1 frame.
+0x0c07fc0c	enemyModel3Create	user	Makes an enemy in list 3 from a record with its position, angles and color (enemyInit), with 2 hit points, model 0x10003 and its motion at frame 0. It adds extra bytes of the given size at 0x7c, and the caller sets its function at 0x74.
+0x0c07fc8c	enemyModel4Draw	user	Draws an enemy with model 0x10004 at a frame of its motion (enemyModel4Create). When the model is in view, it files the hit record in hit list 3 and draws a glow sprite 0x10a02 in its color.
+0x0c07fdd0	enemyModel4Update	user	The task of an enemy with model 0x10004 (enemyModel4Create). At 0 hit points it calls enemyDestroyed, plays sound 0xb and ends. Otherwise it runs its function at 0x70, ends when that returns nonzero, and else steps its motion frame by 1 for the motion in byte 0x69 with the step flags in byte 0x6a.
+0x0c07fe84	enemyModel4Create	user	Makes an enemy in list 3 from a record with its position, angles and color (enemyInit), with 2 hit points, model 0x10004 and its motion 0 at frame 0, which wraps around. It adds extra bytes of the given size at 0x78, and the caller sets its function at 0x70.
+0x0c07ff08	enemiesClear	user	Marks the tasks of lists 3 to 5 up to level 0x80 for removal and empties the hit lists.
+0x0c07ff94	targetPlayerIndex	user	The ship to aim at: the only ship in the game, else the nearer one (nearestPlayerIndex).
+0x0c0800a0	angleTurnToward	user	Turns an angle toward a target angle by at most a step, and returns it. Returns the target when it is within the step.
+0x0c0800e4	angleTurnTowardPlayer	user	Turns an angle toward a ship from a point (aimAtPlayer), by at most a step (angleTurnToward).
+0x0c080118	pointBlendCos	user	Sets a point between two points by the cosine of an angle: the first point at angle 0, the second at 0x8000.
+0x0c080180	targetFartherThan	user	Returns 1 when the squared distance in x and y from a point to the ship of targetPlayerIndex is more than a value.
+0x0c0806f0	effectDriftDraw	user	Draws a drift effect's sprite (effectDriftCreate), relative to the camera's depth unless flag 0x10 is set.
+0x0c0807e0	effectDriftUpdate	user	The task of a drift effect. It fades in, holds for its frames and fades out to its end. Each frame it moves by its velocity, which a factor scales, grows by 0.5%, turns, and steps its animation.
+0x0c080908	effectDriftCreate	user	Makes a drift effect: an animated sprite (0x10200 to 0x10210, which then stays on 0x10210) that fades in, holds and fades out (effectDriftUpdate). Flag 0x01 makes it white, else black, and flag 0x10 puts it in list 0. The arguments: the flags, the position, the velocity, the angle and its turn, the fade-in step and the frames to hold (random when 0), the sprite's offset, the velocity's factor and the scale.
+0x0c080a70	explosionRing	user	Makes a ring of explosions of a kind (effectExplosion) around a point: a number of them at even angles from a random start, at a radius with a random part, moving outward at a speed with a random part, plus a velocity.
+0x0c080c28	explosionRingKind2	user	explosionRing with explosions of kind 2.
+0x0c080c44	explosionRingKind82	user	explosionRing with explosions of kind 0x82.
+0x0c080c64	explosionBurstFixed	user	An explosion with a ring of 7 more around it (explosionRingKind2), a shock ring (shockRingFire) and particles (effectParticles), of fixed sizes.
+0x0c080db4	explosionBurst	user	An explosion with a ring of a number of more around it (explosionRingKind2), a shock ring (shockRingFire) and particles (effectParticles). The first size scales the ring, the shock ring and the particles, the second the center explosion. enemyKill, playerDeathEffect and 11 unnamed functions call it.
+0x0c081470	effectFollowScaled	user	effectFollow at a random angle, with one scale for x and y.
+0x0c08163c	shockRingDraw	user	Draws a shock ring (shockRingCreate): its strip of quads with texture 0x10F00, at its position, turned by its three angles and scaled.
+0x0c081740	shockRingVertices	user	Writes a shock ring's vertices: its segments between the inner and the outer radius, with its alpha.
+0x0c0818cc	shockRingUpdate	user	The task of a shock ring. It moves both radii by their steps and its scale by its factors, follows its position with flag 0x01, and after its frames changes its alpha by its step. It ends when the inner radius passes the outer one, when both are 0 or when its alpha runs out.
+0x0c081a10	shockRingFree	user	Frees a shock ring's vertex buffer when its task ends.
+0x0c081a1c	shockRingCreate	user	Makes a shock ring with a number of segments from a description (shockRingFire builds one), and its vertex buffer (syMalloc).
+0x0c081bf4	shockRingFire	user	Makes a shock ring (shockRingCreate) at a position, drawn additively with the texture that the kind's low 6 bits offset from that of sprite 0x10F00, and following the position with bit 0x80 of the kind. Its outer radius starts at the seventh argument and grows by 5% of it each frame, its inner radius grows from 0 by 8% of it, and its scale starts at the fifth argument and is multiplied by the sixth each frame. Its alpha falls from 255 by 15 each frame after 15 frames.
+0x0c081ce4	leftBandSpriteDraw	user	Draws a sprite of a left band (leftBandSpriteCreate) with its alpha, at the band's sprite position.
+0x0c081d1c	leftBandSpriteUpdate	user	The task of a left band's sprite: fades in to alpha 200 by 5 each frame, and once its band starts to fade out (byte 2 of the band) fades out by 5 each frame and ends below alpha 6.
+0x0c081d84	leftBandSpriteCreate	user	Makes a sprite of a left band (leftBandUpdate makes 4).
+0x0c081dc0	leftBandDraw	user	Draws a left band's black quad, turned for a horizontal screen.
+0x0c081e28	leftBandUpdate	user	The task of a left band. It widens by 5 and its alpha rises by 5 each frame until alpha 200, holds for 182 frames, then fades out by 5 each frame and ends below alpha 6. It adds the 4 sprites from its first sprite id one by one at frames 32, 40, 48 and 56 (leftBandSpriteCreate).
+0x0c081f4c	leftBandCreate	user	Darkens a strip at the left of the screen, over its full height, with a black quad that widens to 205 (leftBandUpdate), and shows the 4 sprites from a sprite id at x 96, y 240. Five stage functions call it, with sprites of bank 4 or 8.
+0x0c082018	redBandCopyDraw	user	Draws a copy of a red band's sprite 0x11901 (redBandCopyCreate) with its alpha.
+0x0c082048	redBandCopyUpdate	user	The task of a red band's copy. In 32 frames the copy moves and scales from its start to x 320, y 240 and scale 1, the band's middle, while its alpha rises by 10 to 120. Then it fades out by 10 each frame and turns back a little toward its start, raises the alpha of the band's sprites by 3 each frame up to 255, and ends at alpha 0.
+0x0c082134	redBandCopyCreate	user	Makes a copy of a red band's sprite 0x11901 at a start position and scale (redBandUpdate makes 8).
+0x0c0821d8	redBandDraw	user	Draws a red band: its quad, turned for a horizontal screen, and while its alpha is not 0 the sprites 0x11900 and 0x11901 at its middle with that alpha, the second one shaken by up to 1 at random. While the band narrows, the two sprites shake apart sideways, further each frame.
+0x0c082314	redBandUpdate	user	The task of a red band. Its half height grows by 1.6 each frame to 72, its red pulses after 16 frames, and it makes a copy of its sprite every 4 frames for its first 32 frames (redBandCopyCreate). After 305 frames it narrows to nothing in 16 frames while its sprites stretch flat, shake apart and lose 20 of alpha each frame, and then ends.
+0x0c082518	redBandVibrate	user	Starts a vibration pattern on a player's controller (vibrationStart), for redBandCreate.
+0x0c082548	redBandCreate	user	Shows a red band through the middle of the screen (redBandUpdate), plays the sound of its argument and sound 0x0F, and vibrates the controllers of the players in the game (redBandVibrate). The stage programs of chapters 1, 2 and 4 call it with command 9, and that of chapter 3 with command 14.
+0x0c082648	chargeParticleDraw	user	Draws a charge particle (chargeParticleCreate): sprites 0x10A02 and 0x10900 on alternate frames, black with flag 0x02, else white, on the screen's plane with flag 0x04.
+0x0c082714	chargeParticleUpdate	user	The task of a charge particle. Its scale moves from 1 by its step each frame, and it sits at its distance times its scale from its matrix's center, at its angles, one of which turns. It ends at scale 0, when its stop byte is set or when its owner is marked for removal.
+0x0c08284c	chargeParticleCreate	user	Makes a particle that moves into the center of a matrix as its scale falls (chargeParticleUpdate). The arguments: the flags, the owner's task, a stop byte, the matrix, two angles, the distance, the shrink each frame (varied by up to 0.005 at random) and the size. bossDeathUpdate, enemyLaserUpdate, chargeParticlePlayer and nine unnamed functions call it.
+0x0c082918	chargeParticlePlayer	user	chargeParticleCreate on the screen's plane (flag 0x04), black or white by a ship's polarity. shipSideEffectUpdate calls it.
+0x0c082e60	shipSideEffectVibrate	user	Starts a vibration pattern on a player's controller (vibrationStart), for shipSideEffectUpdate.
+0x0c0837bc	gameDemoSet	user	Sets playersInGame and gameOver to 0, gameDemo to 1 and soundOff to 0. gameOverTask, pauseQuit, gameTaskFrame and the unnamed FUN_8c0c9a7c and FUN_8c0c9d60 call it.
+0x0c0837e4	rankPlacesClear	user	Sets the 6 rankPlaces to 0xFF, no place.
+0x0c083880	titleMenuReset	user	Sets menuItem, the second byte of menuPush, titleState and the depth of the title's menu stack to 0, and DAT_8c1d13e4 to 5 times optionDifficulty, or 0 with USER SELECT (3).
+0x0c0838b8	menuHelpFree	user	Frees the text lines of one of a menu's two help buffers (menuHelpSet), and forgets the help that it shows.
+0x0c083910	menuHelpSet	user	Shows a menu's help of up to 2 lines: frees the buffer that is not shown and makes the lines' textures into it (textLineTexture). Does nothing while the help is the same, or while byte 0 of the menu's data is 0.
+0x0c083990	menuHelpDraw	user	Draws a menu's help lines (menuHelpSet) at their place for the screen's orientation, over a polygon, except in titleState 2.
+0x0c083a7c	titleOptionsDraw	user	Draws the settings DIFFICULTY, EXTEND and PLAYER STOCK as text on the title.
+0x0c083bf0	titleDraw	user	Draws the title for titleTask. While byte 0 of its data is 1, it moves the black fade (byte 0x1C, fadeSet) toward byte 6 by 10 each frame and, unless the fade is 0xFF, draws sprite 0x20000 in one of three ways, with the settings (titleOptionsDraw) when bit 0x80 of byte 0x4D is set. It always draws the help (menuHelpDraw).
+0x0c083d48	menuPush	user	Saves menuItem, a second byte and titleState on the title's menu stack (menuPop restores them).
+0x0c083d7c	menuPop	user	Restores menuItem, the second byte and titleState from the title's menu stack (menuPush).
+0x0c083db0	menuCursorDraw	user	Draws a menu's cursor: a character that turns at a position, and a translucent bar through it across the screen, blue or red (last argument), that pulses with a counter.
+0x0c083fa8	menuUpDown	user	Moves the cursor menuItem[index] with up (0x10) or down (0x20) on the press of a given controller, wrapping between a lowest and a highest item, and plays sound 0x3F. When it moves it also sets byte 9 of its data, the cursor's counter, to 0 and returns 1.
+0x0c08403c	gameNewInit	user	Resets the state for a new game: both players' continues and polarities, the scores (playerScoresClear for 0, 1 and 2), gameTwoPlayers and gameFrames. It sets gamePrototype to 1 when optionPrototype is 1, and gameNoRanking to 1 in the practice, else 0. mainMenu and practiceMenu call it.
+0x0c084ab4	configHelpLoad	user	Makes the textures of the controller settings' 6 help lines (textLineTexture).
+0x0c084af4	configHelpFree	user	Frees the controller settings' 6 help lines.
+0x0c084b38	configHelpDraw	user	Draws the controller settings' 6 help lines one under another, over a polygon, and frees the menu's help (menuHelpFree).
+0x0c084c24	buttonChoiceStep	user	Steps a button setting through its 7 choices (buttonMasks) with left (0x40) or right (0x80) on a controller's press, wrapping, and plays sound 0x1A.
+0x0c084c94	configButtonsInput	user	Changes the controller setting at a player's cursor: the shot, switch or release button (buttonChoiceStep), release with shot and switch together, or vibration. Vibration changes only with a vibration unit in one of the controller's sockets (pdVibIsReady).
+0x0c0864f8	overwriteConfirm	user	The title's screen that asks whether to overwrite the data file on the card. YES (A or C) keeps the request in byte 0x0E of the title's data, NO or B clears it. Both return to the screen before (menuPop).
+0x0c087e48	bootCardTextFree	user	Frees the 16 text lines of the memory card check.
+0x0c087e98	bootCardText	user	Shows a message of the memory card check: makes the textures of a number of lines from a table, each with its alignment and position (textLineTexture).
+0x0c087f48	bootCardDraw	user	Draws the memory card check: sprite 0x20000 and its text lines.
+0x0c087ff8	bootCardUpdate	user	The task of the memory card check at the boot. With a card in drive 0 it loads the data file (saveRead, optionsApply), or creates one (saveWrite) when it finds none and the card has 34 free blocks or more. It shows a message for each result (bootCardText), starts again when a card comes while it shows that there is none or goes while it shows a failure or too little space, and with START sets gameDemo to 1 and changes to scene 2.
+0x0c0883c0	bootCardCreate	user	Starts the memory card check at the boot (bootCardUpdate). sceneBootStart calls it.
 0x0c0ca830	_kmtex_CodebookSize	sdk-r2.00j reference
 0x0c0ca84c	_kmtex_CodebookSizeMM	sdk-r2.00j reference
 0x0c0cad80	_gdg_fs_lif_tbl	sdk-r2.00j reference
@@ -1718,328 +2046,328 @@
 0x0c0cf540	__nj_lcolor_simple	sdk-r2.00j reference
 0x0c0cf560	__nj_unit_matrix_	sdk-r2.00j reference
 0x0c0cf5a0	_kmiEOL	sdk-r2.00j reference
-0x0c056a20	gameMain	user
-0x0c066160	gameInit	user
-0x0c066300	gameRelease	user
-0x0c066390	gameEnterScene	user
-0x0c066644	gameTaskFrame	user
-0x0c0668fc	gameReadPad	user
-0x0c066b84	gameFrame	user
-0x0c066d44	taskInitLists	user
-0x0c066d6c	taskCreate	user
-0x0c066ddc	taskRunList	user
-0x0c066e38	taskDrawList	user
-0x0c066e6c	taskRemove	user
-0x0c066ed4	taskKillLevel	user
-0x0c066f08	taskRemoveLevel	user
-0x0c066f4c	taskKillUpdate	user
-0x0c0884f0	sceneBootStart	user
-0x0c0887b0	sceneLogosStart	user
-0x0c0c9510	sceneResultsStart	user
-0x0c087d00	sceneTitleStart	user
-0x0c0896a0	sceneModeSelectStart	user
-0x0c089e3c	sceneChapter1Start	user
-0x0c096c24	sceneChapter2Start	user
-0x0c0a1a58	sceneChapter3Start	user
-0x0c0ad494	sceneChapter4Start	user
-0x0c0b7a08	sceneChapter5Start	user
-0x0c0c5e68	sceneTutorialStart	user
-0x0c0c9f98	sceneEndingStart	user
-0x0c071000	stageStart	user
-0x0c0670f4	fileLoad	user
-0x0c06beb0	soundLoadBanks	user
-0x0c068280	fadeSet	user
-0x0c068658	fadeTo	user
-0x0c0682a8	fadeDraw	user
-0x0c076e64	playerCreate	user
-0x0c0765ac	playerUpdate	user
-0x0c075b24	playerDraw	user
-0x0c076328	playerMove	user
-0x0c075c6c	playerReadInput	user
-0x0c075c20	playerClearInput	user
-0x0c075f80	playerButtons	user
-0x0c075f1c	playerSetPolarity	user
-0x0c076574	playerPlaceAtStart	user
-0x0c078710	playerTurnEffect	user
-0x0c0703bc	playerSpendEnergy	user
-0x0c07760c	playerShotCreate	user
-0x0c078118	playerLaserCreate	user
-0x0c06c3d0	soundPlay	user
-0x0c07c36c	scriptStart	user
-0x0c07c300	scriptRun	user
-0x0c07c1ec	scriptStep	user
-0x0c07c054	scriptGroupAdd	user
-0x0c07c088	scriptGroupRemove	user
-0x0c07c138	scriptGroupsUpdate	user
-0x0c07c1b0	scriptGroupsInit	user
-0x0c07c39c	scriptGroupCount	user
-0x0c066ecc	taskEnd	user
-0x0c06f85c	scoreAdd	user
-0x0c0701c0	chainCount	user
+0x0c056a20	gameMain	user	The game's main loop: sets Ninja and the game up (gameInit), then runs one frame at a time (pdExecPeripheralServer, gameFrame, the vertical blank). It stops when gameExitRequest is set and no card save runs (DAT_8c1520c4), and it sets gameExitRequest when gameFrame returns nonzero or the disc tray opens. Then it calls gameRelease and frees Ninja's buffers.
+0x0c066160	gameInit	user	Sets the game up before the first frame. frameCount counts from here.
+0x0c066300	gameRelease	user	Frees gamePads, removes every task of the 7 lists, stops the loads (loadsAbort), frees the 16 graphics banks and the 4 sound banks and closes the sound. gameMain calls it after the main loop.
+0x0c066390	gameEnterScene	user	Changes to a scene: removes every task, saves to the card when saveRequest and optionAutosave are set, makes the scene current and calls its start function, whose result is the next request.
+0x0c066644	gameTaskFrame	user	Runs a frame of the scene: checks the soft reset, runs the task lists 0 to 5 (only 6 while paused), opens the frame, draws the lists and renders.
+0x0c0668fc	gameReadPad	user	Copies a controller's state into the game's own copy (gamePads), with the directions turned a quarter turn (up to left, down to right, left to down, right to up) when optionRotateButtons is set. While DAT_8c15c54c is set, a press resets the idle count DAT_8c15c544, and while the screen is darkened (DAT_8c15c550) the copy is all zeros and a press ends the darkening.
+0x0c066b84	gameFrame	user	One frame of the game: reads both controllers (gameReadPad), updates the VMU screens, then runs the scene (gameTaskFrame) or changes to the requested one (gameEnterScene), and adds 1 to frameCount. While DAT_8c15c54c is set, more than 10800 frames without a press start to darken the screen step by step. See docs/game.md, The frame.
+0x0c066d44	taskInitLists	user	Empties the 7 task lists.
+0x0c066d6c	taskCreate	user	Makes a task with `size` bytes of data at the end of a task list, with an update and a draw function. Returns the data's address, after the task's 0x18-byte header (Task).
+0x0c066ddc	taskRunList	user	Calls the update function of each living task of a list, and removes the tasks whose removal countdown ends.
+0x0c066e38	taskDrawList	user	Calls the draw function of each living task of a list.
+0x0c066e6c	taskRemove	user	Calls a task's removal function, unlinks the task from its list and frees it. Returns the next task.
+0x0c066ed4	taskKillLevel	user	Marks the living tasks of a list up to a level for removal, which taskRunList does when it next reaches them.
+0x0c066f08	taskRemoveLevel	user	Removes the tasks of a list up to a level at once.
+0x0c066f4c	taskKillUpdate	user	Marks the living tasks of a list that have this update function for removal, which taskRunList does when it next reaches them.
+0x0c0884f0	sceneBootStart	user	Scene 1: loads the common data (COMDAT) and the notice (WARNDAT_DC). Its task shows the notice, reads the save from the VMU or writes a new one when the card has room, waits for Start and then requests scene 2.
+0x0c0887b0	sceneLogosStart	user	Scene 2: the logos.
+0x0c0c9510	sceneRankingStart	user	Scene 3: the ranking lists, from the RANKING bank. After a game it first shows the play data. VIEW RANKING (rankingMenu) and the end of the attract demo also lead here.
+0x0c087d00	sceneTitleStart	user	Scene 4: the title and its menus (titleTask).
+0x0c0896a0	sceneModeSelectStart	user	Scene 5: the mode select after GAME START.
+0x0c089e3c	sceneChapter1Start	user	Scene 6, chapter 1: loads the chapter's sound banks, sets the fade and sceneNext, and starts the stage with the chapter's stage program.
+0x0c096c24	sceneChapter2Start	user	Scene 7, chapter 2: loads the chapter's sound banks, sets the fade and sceneNext, and starts the stage. In a trial game the ending follows this chapter.
+0x0c0a1a58	sceneChapter3Start	user	Scene 8, chapter 3: loads the chapter's sound banks, sets the fade and sceneNext, and starts the stage with the chapter's stage program.
+0x0c0ad494	sceneChapter4Start	user	Scene 9, chapter 4: loads the chapter's sound banks, sets the fade and sceneNext, and starts the stage with the chapter's stage program.
+0x0c0b7a08	sceneChapter5Start	user	Scene 10, chapter 5: loads the chapter's sound banks, sets the fade and sceneNext, and starts the stage with the chapter's stage program.
+0x0c0c5e68	sceneTutorialStart	user	Scene 11: the tutorial, a stage that always plays recorded input (demoStart). Its sceneNext is scene 3 in the attract demo, chapter 1 in a trial game and the title else.
+0x0c0c9f98	sceneEndingStart	user	Scene 12: the ending. Sets gameClearFlags.
+0x0c071000	stageStart	user	Starts the stage of a chapter or of the tutorial with its stage program: makes the stage's task (stageUpdate, stageDraw), runs the program's first commands, and makes the camera, the ships (playerCreate), the HUDs and the HP gauge. It also empties the script groups, clears bossTimeLeft and the 20 bytes from stageLocks.
+0x0c0670f4	fileLoad	user	Reads a whole file from the disc into a block from syMalloc. Gives the file's size.
+0x0c06beb0	soundLoadBanks	user	Loads a file's list of sound banks into a slot of soundBankLists and sends each bank to the sound driver, unless the slot already holds the list of that name. soundInit loads the default list into slot 0, and other scenes load theirs into slot 1.
+0x0c068280	fadeSet	user	Gives the fade one color.
+0x0c068658	fadeTo	user	Makes a task that changes the fade's four corners to these ARGB colors in a number of frames.
+0x0c0682a8	fadeDraw	user	Draws the fade's quad (fadeQuad, the whole screen) while its first corner's alpha is not 0, with the blending flags in DAT_8c1cae8c (spriteMode). With screenHorizontal set it turns the clipping off first, unless DAT_8c1cae88 is set: then it draws the quad turned by polygonTurn instead.
+0x0c076e64	playerCreate	user	Makes a player's ship at a stage's start (stageStart): a task in list 2 whose data is a Player, kept in players. The ship takes its polarity from playerPolarity, and starts out of the game (state 4) when its player is not in the game, in play (state 2) in chapter 1 at stagePart 0, else with a new life (state 0).
+0x0c0765ac	playerUpdate	user	The update of the ship's task, by its state: 0 sets up a new life, 1 flies the ship in, 1 and 2 move the ship (playerMove) until a hit or the scenery ends the life, 3 waits 60 frames and then starts the next life or puts the player out (playerOut), and 4 and 5 do nothing. The first player's task also reads the demo's input (demoInputRead). See docs/game.md, The player.
+0x0c075b24	playerDraw	user	Draws the ship, which files its hit records (shipModelDraw), unless it is hidden. When the player of a ship out of the game (state 4) has joined, the ship starts a new life (state 0), after a wait in state 5 while the player's bit in DAT_8c15c590 or DAT_8c15c58c is set. In chapter 1 at stagePart 0 and stagePhase 1 it goes to play (state 2) at once.
+0x0c076328	playerMove	user	Steers the ship within its bounds, and runs the turn of a polarity switch: 14 frames, the color changing halfway.
+0x0c075c6c	playerReadInput	user	Turns a player's pad into playerInput: the directions, and shot, switch and release by the player's chosen buttons (buttonShot, buttonSwitch, buttonRelease). With buttonShotSwitch set, shot and switch pressed together count as a release. playerMove calls it only when no recorded input plays (demoInput).
+0x0c075c20	playerClearInput	user	Clears a player's input and the ship's held and pressed buttons.
+0x0c075f80	playerButtons	user	Shoots, releases the homing lasers and starts a polarity switch from a player's input.
+0x0c075f1c	playerSetPolarity	user	Sets the hit attributes of the ship (0x60 for polarity 0, 0x50 for 1) and of its field (1 or 2, with 0x08 for the second player) by its polarity. It keeps the polarity in playerPolarity, which playerCreate gives the ship at the next stage's start.
+0x0c076574	playerPlaceAtStart	user	Puts the ship at its start for a new life.
+0x0c078710	playerTurnEffect	user	Makes a sprite at a ship in the color of the ship's polarity at that time, a task in list 2 (turnEffectUpdate, turnEffectDraw). It follows the ship and fades out when the ship's next turn starts (flag 0x20), or ends at once when flag 0x04 is in the ship's flags or forced. playerMove makes it when a turn switches the polarity, and playerUpdate when a new life starts.
+0x0c0703bc	playerSpendEnergy	user	Takes `amount` from a player's playerEnergy, down to 0. playerButtons takes 10 for each homing laser of a release, and playerShotCreate takes 2 for a shot and 1 for a side shot in the prototype mode.
+0x0c07760c	playerShotCreate	user	Fires a shot from the ship, a task in list 2. In the prototype mode a shot costs 2 energy and a side shot 1, and a shot without the energy ends after a few frames.
+0x0c078118	playerLaserCreate	user	Makes a homing laser of a release, which picks its target with laserTarget.
+0x0c06c3d0	soundPlay	user	Starts a MIDI sequence by its id: the slot of the bank list in the high byte and the entry in the low byte. With a position, it gets a pan and a volume.
+0x0c07c36c	scriptStart	user	Starts a stage script, an array of ScriptRecords, in a task of list 3.
+0x0c07c300	scriptRun	user	The task of a stage script: takes its current record through scriptStep each frame.
+0x0c07c1ec	scriptStep	user	Checks a stage script's current record and returns how many records to move on. When a run condition holds (scroll position, frames on the record, frames of the script, empty group) it calls the record's function, adds the result to a group with flag 0x800 (scriptGroupAdd) and returns next. When a branch condition holds it returns branch without the call, else 0. See docs/game.md, The stage scripts.
+0x0c07c054	scriptGroupAdd	user	Adds what a script record made to one of the 4 script groups.
+0x0c07c088	scriptGroupRemove	user	Removes a member from a script group and closes the gap.
+0x0c07c138	scriptGroupsUpdate	user	Runs each frame and drops the group members whose task is marked for removal, so that a record can wait for an empty group.
+0x0c07c1b0	scriptGroupsInit	user	Empties the 4 script groups and starts the task of scriptGroupsUpdate in list 3, at each stageStart.
+0x0c07c39c	scriptGroupCount	user	Returns the number of members in a script group.
+0x0c066ecc	taskEnd	user	Ends the task whose data it gets: marks it for removal, so it is no longer updated or drawn and taskRunList removes it when it next reaches it.
+0x0c06f85c	scoreAdd	user	Adds points to a player's score, and gives a life at extendScore.
+0x0c0701c0	chainCount	user	Counts a kill of color 1 or 2 for the chain of the player who made it, in chainSet. Three kills of one color in a row complete a set: chain grows by 1, chainMax follows it and chainBonus pays. A kill of the other color before a set is complete sets chain to 0 and starts a new set.
 0x0c06fb28	chainBonusLabelDraw	user	Draws the label of a chain bonus (chainBonus). Its first call puts the label where the kill was on the screen, within the screen's edges. Then it draws the chain's step, or MAX, and the points.
-0x0c06ff30	chainBonusLabelUpdate	user	Moves the label of a chain bonus (chainBonus) on and fades its flash. The MAX label also shrinks. After 32 frames the label fades out, and the task ends.
+0x0c06ff30	chainBonusLabelUpdate	user	The task of a chain bonus's label (chainBonus), once chainBonusLabelDraw has placed it: moves the label by 0.5 a frame, lowers its flash by 16 a frame, and shrinks the MAX label by 0.025 a frame down to 0.825. Once its frame counter passes 32, it lowers the label's alpha by 32 a frame and ends when the alpha is 32 or less.
 0x0c070018	chainBonus	user	Pays the bonus of a step in a chain of kills of one color: 100 points at the first step, doubled at each step, up to 25,600 at the ninth and every later one (MAX). Shows the points where the kill was, in a task of chainBonusLabelUpdate and chainBonusLabelDraw.
-0x0c078ff8	hitInit	user
-0x0c07904c	hitInitRegistered	user
-0x0c078e98	hitShapeInit	user
-0x0c079b20	hitRegister	user
-0x0c07f624	enemyInitCommon	user
-0x0c07f6ac	enemyInit	user
-0x0c07f6ec	enemyMove	user
-0x0c07bf40	enemyDestroyed	user
-0x0c079384	hitApply	user
-0x0c079554	hitTestLists	user
-0x0c079518	hitBoundsTest	user
-0x0c079248	hitFile	user
-0x0c07918c	hitShapePlace	user
-0x0c079088	hitShapeTransform	user
-0x0c079744	hitListsClear	user
-0x0c079350	hitListsResetHits	user
-0x0c079780	hitPass	user
-0x0c0794b4	hitSoundRequest	user
-0x0c079824	hitStart	user
-0x0c079b78	hitSlotsInit	user
-0x0c079aac	hitSlotsUpdate	user
-0x0c079bcc	hitSlotTargetable	user
-0x0c079a98	hitSlotPosition	user
-0x0c079a18	hitSlotAim	user
-0x0c079a58	hitSlotUnaim	user
-0x0c0798ac	laserTarget	user
-0x0c079e64	sceneryHit	user
-0x0c077478	playerShotUpdate	user
-0x0c07722c	playerShotDraw	user
-0x0c077990	playerLaserUpdate	user
-0x0c077794	playerLaserDraw	user
-0x0c07d08c	bulletCreate	user
-0x0c07d154	bulletFireAt	user
-0x0c07d1b8	bulletFire	user
-0x0c07cf7c	bulletUpdate	user
-0x0c07cea4	bulletDraw	user
-0x0c07c7a4	bulletAbsorbed	user
-0x0c07c648	bulletAbsorb	user
-0x0c07c3ac	bulletVanish	user
-0x0c0702ac	playerAbsorb	user
-0x0c07ff38	nearestPlayerIndex	user
-0x0c07ff74	nearestPlayer	user
-0x0c07ffc0	aimAtPlayer	user
-0x0c06d5a0	vectorFromAngle	user
-0x0c066544	pauseUpdate	user
-0x0c06f714	vibrationStopAll	user
-0x0c06c584	soundPauseSequences	user
-0x0c06c5b8	soundResumeSequences	user
-0x0c06c95c	soundPauseEffects	user
-0x0c06c990	soundResumeEffects	user
-0x0c070da8	stageUpdate	user
-0x0c075310	demoStart	user
-0x0c070938	stageProgramRun	user
-0x0c06ef84	easeFloat	user
-0x0c06eeb4	easeFloatUpdate	user
-0x0c06ee40	easeWord	user
-0x0c0708ac	scrollStopAt	user
-0x0c0703e0	stageCmdStop	user
-0x0c0703e4	stageCmdPath	user
-0x0c070410	stageCmdLock	user
-0x0c070428	stageCmdNextPhase	user
-0x0c070450	stageCmdWaitLock	user
-0x0c070470	stageCmdWaitScroll	user
-0x0c07049c	stageCmdNextPart	user
-0x0c0704bc	stageCmdEnd	user
-0x0c07054c	stageCmdCall	user
-0x0c070560	stageCmdCall1	user
-0x0c070574	stageCmdCall2	user
-0x0c070588	stageCmdCall3	user
-0x0c0705a0	stageCmdCall4	user
-0x0c0705b8	stageCmdCallAt	user
-0x0c0705f4	stageCmdCall1At	user
-0x0c070630	stageCmdCall2At	user
-0x0c07066c	stageCmdCall3At	user
-0x0c0706a8	stageCmdCall4At	user
-0x0c0706e4	stageCmdSetFloat	user
-0x0c070700	stageCmdSetFloatAt	user
-0x0c07073c	stageCmdEaseFloat	user
-0x0c070780	stageCmdEaseFloatAt	user
-0x0c0707bc	stageCmdSetWord	user
-0x0c0707c8	stageCmdSetWordAt	user
-0x0c070804	stageCmdEaseWord	user
-0x0c07083c	stageCmdEaseWordAt	user
-0x0c070904	stageCmdStopScroll	user
-0x0c06d9f4	pathLoad	user
-0x0c06d9d0	pathFree	user
-0x0c06dd40	pathAt	user
-0x0c06c844	soundEffect	user
-0x0c06c72c	soundEffectStart	user
-0x0c06c27c	soundSequenceStart	user
-0x0c06c0d4	soundSlotFind	user
-0x0c06c6f4	soundPan	user
-0x0c06c6ac	soundLevel	user
-0x0c06cb10	soundServer	user
-0x0c06c648	soundStopSequences	user
-0x0c06bcc4	soundInit	user
-0x0c07bc24	enemyDeathBullets	user
-0x0c07be04	enemyExplosion	user
-0x0c080578	effectExplosion	user
-0x0c0810e4	effectParticles	user
-0x0c081038	effectParticle	user
-0x0c08154c	effectBurst	user
-0x0c083690	effectFlash	user
-0x0c06d36c	randomSeed	user
-0x0c06d378	randomNext	user
-0x0c06d394	randomFloat	user
-0x0c0644b8	mathAtan2	user
-0x0c07b934	hpGaugeCreate	user
-0x0c07b850	hpGaugeDraw	user
-0x0c07ba08	hpGaugeSet	user
-0x0c06e204	optionDefaults	user
-0x0c06e288	rankingDefaults	user
-0x0c06e558	saveReset	user
-0x0c06e1a4	saveCalcSum	user
-0x0c06e5bc	saveImageMake	user
-0x0c06e598	saveImageFree	user
-0x0c06e6f8	saveWrite	user
-0x0c06e6ac	saveWriteDone	user
-0x0c06e83c	saveRead	user
-0x0c06e798	saveReadDone	user
-0x0c06e8e4	optionsApply	user
-0x0c06e9a4	playTimeAdd	user
-0x0c071a8c	rankingAdd	user
-0x0c079d5c	polygonContains	user
-0x0c06d56c	matrixTranslation	user
-0x0c06d538	matrixCalcPoint	user
-0x0c079114	sphereInView	user
-0x0c068804	drawFog	user
-0x0c068e38	spriteMode	user
-0x0c068ecc	spriteTexture	user
-0x0c06a488	spriteDraw	user
-0x0c069060	spriteAtMatrix	user
-0x0c0690dc	spriteAtMatrixOffset	user
-0x0c069160	spriteAtMatrixDepth	user
-0x0c06887c	modelSetup	user
-0x0c06899c	modelDraw	user
-0x0c06e1cc	saveCheck	user
-0x0c0645d8	stringCopy	user
-0x0c06bbbc	soundSetStereo	user
-0x0c06bc3c	soundSetMono	user
-0x0c08422c	playerStart	user
-0x0c083800	playerJoin	user
-0x0c0841c8	playerScoresClear	user
-0x0c06718c	fileDirsOpen	user
-0x0c0671fc	fileSetDir	user
-0x0c067214	bankClear	user
-0x0c067274	banksInit	user
-0x0c066f7c	fileReadStart	user
-0x0c067014	fileReadPoll	user
-0x0c067078	fileReadEnd	user
-0x0c065e88	chunkNext	user
-0x0c0672a0	modelFileLoad	user
-0x0c079d24	sceneryAdd	user
-0x0c079ebc	sceneryClear	user
-0x0c06d5f8	offScreen	user
-0x0c06d670	matrixOffScreen	user
-0x0c06d63c	pointOffScreen	user
-0x0c06d488	pointToPlane	user
-0x0c0801c4	animStart	user
-0x0c0801d4	animStep	user
-0x0c0803c8	explosionUpdate	user
-0x0c080238	explosionDraw	user
-0x0c080fbc	particleUpdate	user
-0x0c080f3c	particleDraw	user
-0x0c081380	effectFollow	user
-0x0c0812e8	followUpdate	user
-0x0c0814c0	burstUpdate	user
-0x0c0811a4	effectSpriteDraw	user
-0x0c08121c	effectSpriteDrawDepth	user
-0x0c081294	effectSpriteDrawPlain	user
-0x0c06a7a4	textDraw	user
-0x0c06a774	textWidth	user
-0x0c06b09c	textPrintf	user
-0x0c093a34	lensFlareCreate	user
-0x0c06f738	discErrorScreen	user
-0x0c0681c8	clipPlayArea	user
-0x0c068208	clipOff	user
-0x0c068230	viewPlayArea	user
-0x0c06d0d0	vmuScreenUpdate	user
-0x0c06d2e8	vmuScreenEvent	user
-0x0c06b164	modelMotionFrames	user
-0x0c06b1a8	modelMotionStep	user
-0x0c068cf8	modelDrawNodes	user
-0x0c068c7c	modelTreeDraw	user
-0x0c068da0	modelDrawMotion	user
-0x0c068f6c	spriteDraw3D	user
-0x0c07bab0	enemyModelFlags	user
-0x0c07bb64	enemyModelDraw	user
-0x0c07bb88	enemyModelDrawMotion	user
-0x0c07cc7c	bulletSpriteCreate	user
-0x0c07cb6c	bulletSpriteUpdate	user
-0x0c07ca98	bulletSpriteDraw	user
-0x0c07c964	bulletSpinCreate	user
-0x0c07c874	bulletSpinUpdate	user
-0x0c07c7b0	bulletSpinDraw	user
-0x0c06b738	lightOn	user
-0x0c06b810	lightOff	user
-0x0c08360c	flashUpdate	user
-0x0c08359c	flashDraw	user
-0x0c073078	rankingFindPlaces	user
-0x0c073218	nameEntryStart	user
-0x0c072d74	nameEntryTask	user
-0x0c07235c	nameEntryDraw	user
-0x0c0751c0	hudCreate	user
-0x0c0750f4	hudUpdate	user
-0x0c0740d4	hudDraw	user
-0x0c074bd4	energyGaugeDraw	user
-0x0c072eb8	scoreTotal	user
-0x0c06f1d4	hudPressStart	user
-0x0c0833d8	chapterTitleCreate	user
-0x0c082e90	chapterTitleUpdate	user
-0x0c082950	chapterTitleDraw	user
-0x0c074a18	hudPlace	user
-0x0c06f004	creditUse	user
-0x0c06f940	playerContinueAdd	user
-0x0c071a08	continueStart	user
-0x0c071874	continueTask	user
-0x0c071418	continueScreen	user
-0x0c0719c4	continueEnd	user
-0x0c070998	playerJoinCheck	user
-0x0c07131c	gameOverCheck	user
-0x0c0711a8	gameOverTask	user
-0x0c073268	playerOut	user
-0x0c0879c4	titleTask	user
-0x0c087cd8	titleEnd	user
-0x0c0840d0	titlePressStart	user
-0x0c08432c	mainMenu	user
-0x0c084da4	configButtons	user
-0x0c0860d0	rankingScreen	user
-0x0c086298	rankingResetScreen	user
-0x0c085678	configMenu	user
-0x0c084764	practiceMenu	user
-0x0c0866e8	backupMenu	user
-0x0c086e68	appendixMenu	user
-0x0c0874d4	soundTest	user
-0x0c07ae98	resultsStart	user
-0x0c07adfc	resultsUpdate	user
-0x0c07a8d0	resultsDraw	user
-0x0c07a934	resultsStep	user
-0x0c07a724	bossTimeClear	user
-0x0c07a730	bossTimeAdd	user
-0x0c07b50c	bossTimerCreate	user
-0x0c07b380	bossTimerUpdate	user
-0x0c07b26c	bossTimerDraw	user
-0x0c088eb8	modeSelectUpdate	user
-0x0c0888b4	modeSelectDraw	user
-0x0c088e2c	modeSelectCursor	user
-0x0c088e08	modeSelectDifficulty	user
-0x0c078ccc	cameraCreate	user
-0x0c078b3c	cameraUpdate	user
-0x0c078a68	cameraDraw	user
-0x0c078cc0	cameraEnd	user
-0x0c078c6c	cameraFlat	user
-0x0c06fa30	stageUnlock	user
-0x0c06f654	vibrationStart	user
-0x0c06f4e0	vibrationPort	user
-0x0c06f4b4	vibrationIndex	user
-0x0c06f5d4	vibrationTaskCreate	user
-0x0c06f54c	vibrationTask	user
-0x0c078978	cameraOrbit	user
-0x0c078a8c	cameraView	user
-0x0c06b340	lightAim	user
-0x0c06b460	lightsApply	user
-0x0c06b5f8	lightsReset	user
+0x0c078ff8	hitInit	user	Fills a hit record: its attribute, hit points, power and its two shapes.
+0x0c07904c	hitInitRegistered	user	hitInit, and registers the object in hitSlots so that homing lasers can aim at it.
+0x0c078e98	hitShapeInit	user	Finds the sphere around all spheres of a hit shape.
+0x0c079b20	hitRegister	user	Registers an object in a free slot of hitSlots, which homing lasers aim at. Returns the slot.
+0x0c07f624	enemyInitCommon	user	Fills an enemy's common part from its script record's data: the position, the angles, the color from the data's byte 0x38 and the hit record. With the first argument 0, homing lasers can aim at the enemy (hitRegister).
+0x0c07f6ac	enemyInit	user	Fills an enemy's common part (enemyInitCommon), for an enemy that homing lasers can aim at.
+0x0c07f6ec	enemyMove	user	Adds an enemy's velocity to its position.
+0x0c07bf40	enemyDestroyed	user	Called by an enemy whose hit points reached 0: counts the kill for the chain of the player who hit it this frame (chainCount, hitBy bit 0x08 picks player 2). Then it makes the enemy's explosion (enemyExplosion) and its bullets (enemyDeathBullets). It clears the explosion's flag 0x40 when that player's chainSet count stands at 2.
+0x0c079384	hitApply	user	Takes the hitter's power, doubled when their colors (attribute & 3) differ, from the target's hit points unless the target has flag 0x02 or 0x04. A hitter with flag 0x01 scores 10 points for each point of damage unless the target has flag 0x04 or 0x08. It also marks the hit in the hitBy bits and, for a hitter with flag 0x40, requests the hit sound (hitSoundRequest).
+0x0c079554	hitTestLists	user	Tests each record of one hit list against each of another and applies the hits.
+0x0c079518	hitBoundsTest	user	Returns 1 when the hitter's shape 0 and the target's shape 1 both have bounding spheres. Otherwise it tests the hitter's bounding sphere, or its first sphere, against the target's bounding sphere, or its first sphere (njCollisionCheckSS).
+0x0c079248	hitFile	user	Files a hit record with hit points left in one of the 5 hit lists, with its two shapes placed by the current matrix (hitShapePlace). A record with no shape placed is not filed and gets its hitBy cleared. For a record with a laser slot, it also sets the slot's position, record and in-view mark.
+0x0c07918c	hitShapePlace	user	Places a hit shape's spheres by the current matrix into the sphere buffer (hitShapeTransform), with a bounding sphere in out[0] when the shape has more than one. Returns 0 when there is no shape, or when it is out of view (sphereInView) unless flag 0x100 is set.
+0x0c079088	hitShapeTransform	user	Writes each sphere of a hit shape, placed by the current matrix, to the next places of the sphere buffer, and stores the first one's address in out[1]. A kind 0 entry becomes a sphere at the matrix's origin with its radius times 0.0001.
+0x0c079744	hitListsClear	user	Empties the 5 hit lists and their sphere buffers, for the next frame.
+0x0c079350	hitListsResetHits	user	Clears the hitBy byte of each record filed in the 5 hit lists. hitPass calls it before it tests the lists.
+0x0c079780	hitPass	user	Tests the hit lists against each other: the shots against the enemies, the fields against the bullets, the bullets against the ships and the enemies against the ships.
+0x0c0794b4	hitSoundRequest	user	Stores a hit sound to play at a position with a priority from 1 to 3. A request replaces a pending one of a lower priority, and one of priority 3 replaces any. hitPass plays the pending sound and then waits 4 frames before the next.
+0x0c079824	hitStart	user	Sets the hit system up for a stage: the tasks that test the hit lists and clear them for the next frame, the scenery and the laser slots.
+0x0c079b78	hitSlotsInit	user	Frees the 200 slots that homing lasers aim at, and makes their task.
+0x0c079aac	hitSlotsUpdate	user	The task of the laser slots: clears each slot's in-view mark for the next frame, and frees a slot one frame after its object's removal starts.
+0x0c079bcc	hitSlotTargetable	user	Whether a slot holds an object that a homing laser may aim at: used, in view and not flagged 0x80.
+0x0c079a98	hitSlotPosition	user	Returns the address of a slot's position, which hitFile sets to the center of the first sphere of the object's shape 1 at each filing.
+0x0c079a18	hitSlotAim	user	Counts a laser's damage on its way to a slot's object: 10, or 20 against the other color.
+0x0c079a58	hitSlotUnaim	user	Takes back a laser's damage from a slot's object: 10, or 20 against the other color.
+0x0c0798ac	laserTarget	user	Picks a target slot for a homing laser at a point: the nearest one in x and y that hitSlotTargetable would accept and whose aimed damage is below its hit points, else the nearest such slot at all. Returns 0xff when there is none. No caller sets wide, which would halve dx and quadruple a positive dy.
+0x0c079e64	sceneryHit	user	Whether a point lies inside the scenery's polygons. A shot stops there, and a ship that is not invulnerable dies.
+0x0c077478	playerShotUpdate	user	The update of a shot's task: moves the shot by its y speed and ends it outside x -30 to 30 and y -40 to 40, or with a burst (effectBurst) when stageEvents has 0x08. It marks the shot when it meets the scenery (sceneryHit), and playerShotDraw then ends it.
+0x0c07722c	playerShotDraw	user	Draws a shot and files its hit record in hit list 2.
+0x0c077990	playerLaserUpdate	user	A homing laser's task: it turns toward its target slot and takes a new target from laserTarget when the old one is lost, and for its first 12 frames it also moves with the ship. It stops when its draw saw a hit, when it leaves x -30 to 30, y -40 to 40 without a target, or at stageEvents flag 0x08. Its trail then shrinks and fades until taskEnd.
+0x0c077794	playerLaserDraw	user	Draws a homing laser's trail. While the laser flies and has a target, it files the laser's hit record in hit list 2. A record whose hitBy has flag 0x80 (a hit) switches the laser to its ending state 1.
+0x0c07d08c	bulletCreate	user	Makes a bullet: a task in list 4 whose data is a Bullet, with a color (0x11 white, 0x22 black), a position and a velocity.
+0x0c07d154	bulletFireAt	user	Fires a bullet at an angle with a speed (vectorFromAngle, bulletCreate).
+0x0c07d1b8	bulletFire	user	Fires a bullet of a color from a position at an angle with a speed, with sprite 0x10300 (bulletFireAt).
+0x0c07cf7c	bulletUpdate	user	A bullet's task: moves the bullet by its velocity and steps its sprite through 4 frames, one step every second frame. It ends the bullet outside x -30 to 30 and y -40 to 40 widened by its margin, through bulletAbsorbed when its hit points are 0, and with bulletVanish when it lies in the scenery (sceneryHit), its hit record shows a hit, or stageEvents has 0x02.
+0x0c07cea4	bulletDraw	user	Draws a bullet and files its hit record in hit list 4. White and black bullets swap their depths from frame to frame.
+0x0c07c7a4	bulletAbsorbed	user	A field absorbed a bullet (bulletAbsorb).
+0x0c07c648	bulletAbsorb	user	Makes the spark of an absorbed bullet (absorbSparkUpdate, absorbSparkDraw), which flies from the bullet to the ship of the player that absorbed it (hitBy bit 0x08 picks player 2). Then it gives that player the energy (playerAbsorb).
+0x0c07c3ac	bulletVanish	user	Makes the effect of a vanishing bullet: an effectBurst (7 for a white bullet, 4 for a black one) at the bullet's position with half its velocity. The bullets' tasks call it before they end a bullet that lies in the scenery, whose hit record shows a hit, or while stageEvents has 0x02.
+0x0c0702ac	playerAbsorb	user	Gives a player `energy` points of energy, up to 120, and 100 points of score for each (bulletAbsorb calls it for an absorbed bullet). In the prototype mode it gives three times as much energy, up to 999. While DAT_8c1d1417 is set it gives only the score, and it calls absorbGlowCreate when the old energy's last digit plus `energy` reaches 10.
+0x0c07ff38	nearestPlayerIndex	user	The index of the ship nearer to a point: 0 for player 1, 1 for player 2.
+0x0c07ff74	nearestPlayer	user	The ship nearer to a point.
+0x0c07ffc0	aimAtPlayer	user	Returns the angle from a point to a ship: with 0 player 1's and with 1 player 2's, or the other one when that player is not in the game (playersInGame). With 2 it takes the nearer ship when both or neither play, else the one that plays.
+0x0c06d5a0	vectorFromAngle	user	Turns an angle and a speed into a velocity. Angle 0 points up.
+0x0c066544	pauseUpdate	user	Called each frame by gameTaskFrame. Unpaused, Start (0x8) on a pad pauses the game unless the player's bit in pauseLocked is set, and sets pausePlayer to 1 or 2. Paused, it stops the vibration and pauses the sound once (not in scene 11), and when pauseEnd is set it resumes the sound and ends the pause.
+0x0c06f714	vibrationStopAll	user	Stops the vibration units at ports 1, 2, 7 and 8 (pdVibMxStop). pauseUpdate calls it at a pause and gameTaskFrame at a soft reset.
+0x0c06c584	soundPauseSequences	user	Marks the playing sequences to pause, for the game's pause.
+0x0c06c5b8	soundResumeSequences	user	Clears the sequences' pause marks, so that they continue.
+0x0c06c95c	soundPauseEffects	user	Marks the playing and waiting one-shot sounds for the game's pause (pauseUpdate), so that soundServer silences them.
+0x0c06c990	soundResumeEffects	user	Clears the one-shot sounds' pause marks, so that soundServer gives the silenced ones their level back.
+0x0c070da8	stageUpdate	user	The stage's task: clears stageEvents, moves scrollSpeed toward scrollTarget by scrollStep, adds it to scrollPosition up to the path's end, runs the stage program (stageProgramRun) and sets stageCamera from the path. Outside the tutorial it pauses the game when both ships are out and no game over runs, and in the attract demo it fades out at frame 3810 and changes to scene 3 at frame 3900.
+0x0c075310	demoStart	user	Starts recorded play, at the start of chapter 1 or 2 in the attract demo and of the tutorial: sets difficulty, gameLives and the first player's lives, seeds the random numbers (randomSeed), sets DAT_8c15c528, points demoInput at the recorded input and sets DAT_8c1d1440 to its length.
+0x0c070938	stageProgramRun	user	Runs the stage program's commands (stageCommands) until one waits for the next frame. See docs/game.md, The stage program.
+0x0c06ef84	easeFloat	user	Makes a task (easeFloatUpdate) that moves the float at `target` from its value at the start to `value` in `frames` frames on a cosine curve. With a `lock`, the task waits until the lock is 0 and holds it until it ends, so tasks on one lock run one after the other. Stage command 20 (stageCmdEaseFloat) uses it.
+0x0c06eeb4	easeFloatUpdate	user	The task of easeFloat. With a lock, it first waits until the lock is 0 and takes it. Then it moves the float one frame along the curve each frame, and at the end it sets the float to the value, frees the lock unless flag 0x80 leaves that to easeFloatEnd, and ends.
+0x0c06ee40	easeWord	user	Makes a task (easeWordTask) that moves the word at `target` from its value at the start to `value` in `frames` frames on a cosine curve. With a `lock`, the task waits until the lock is 0 and holds it until it ends, so tasks on one lock run one after the other. Stage command 24 (stageCmdEaseWord) uses it.
+0x0c0708ac	scrollStopAt	user	Slows the scroll down so that it stops at a position (stage command 26).
+0x0c0703e0	stageCmdStop	user	Stage command 0: stops the stage program.
+0x0c0703e4	stageCmdPath	user	Stage command 1: loads the camera's path (pathCreate).
+0x0c070410	stageCmdLock	user	Stage command 2: raises the first byte of stageLocks.
+0x0c070428	stageCmdNextPhase	user	Stage command 3: waits until the first byte of stageLocks is 0, then raises stagePhase.
+0x0c070450	stageCmdWaitLock	user	Stage command 4: waits until the lock that it names is 0.
+0x0c070470	stageCmdWaitScroll	user	Stage command 5: waits until scrollPosition reaches its position.
+0x0c07049c	stageCmdNextPart	user	Stage command 6: raises stagePart and sets stagePhase to 0.
+0x0c0704bc	stageCmdEnd	user	Stage command 7: ends the stage and sets stagePart to 0. Outside the practice mode it changes to sceneNext, after playersRestore in scene 11. In the practice mode it adds the play time (playTimeAdd), stops the sound, clears playersInGame and changes to scene 4, the title.
+0x0c07054c	stageCmdCall	user	Stage command 8: calls a function with the stage's data.
+0x0c070560	stageCmdCall1	user	Stage command 9: calls a function with one of the command's words.
+0x0c070574	stageCmdCall2	user	Stage command 10: calls a function with two of the command's words.
+0x0c070588	stageCmdCall3	user	Stage command 11: calls a function with three of the command's words.
+0x0c0705a0	stageCmdCall4	user	Stage command 12: calls a function with four of the command's words.
+0x0c0705b8	stageCmdCallAt	user	Stage command 13: as command 8, once the scroll reaches its position.
+0x0c0705f4	stageCmdCall1At	user	Stage command 14: as command 9, once the scroll reaches its position.
+0x0c070630	stageCmdCall2At	user	Stage command 15: as command 10, once the scroll reaches its position.
+0x0c07066c	stageCmdCall3At	user	Stage command 16: as command 11, once the scroll reaches its position.
+0x0c0706a8	stageCmdCall4At	user	Stage command 17: as command 12, once the scroll reaches its position.
+0x0c0706e4	stageCmdSetFloat	user	Stage command 18: sets a float.
+0x0c070700	stageCmdSetFloatAt	user	Stage command 19: sets a float once the scroll reaches its position.
+0x0c07073c	stageCmdEaseFloat	user	Stage command 20: moves a float to a value over a number of frames (easeFloat).
+0x0c070780	stageCmdEaseFloatAt	user	Stage command 21: as command 20, once the scroll reaches its position.
+0x0c0707bc	stageCmdSetWord	user	Stage command 22: sets a word.
+0x0c0707c8	stageCmdSetWordAt	user	Stage command 23: sets a word once the scroll reaches its position.
+0x0c070804	stageCmdEaseWord	user	Stage command 24: moves a word to a value over a number of frames (easeWord).
+0x0c07083c	stageCmdEaseWordAt	user	Stage command 25: as command 24, once the scroll reaches its position.
+0x0c070904	stageCmdStopScroll	user	Stage command 26: slows the scroll down to stop at a position (scrollStopAt).
+0x0c06d9f4	pathCreate	user	Builds a path from an array of PathPoint (flags, position, three angles and a value) whose last point has flag 0x80: the distance along it at each point and the tables for its straight and curved segments (pathSlopes, pathCurves). stageCmdPath makes the stage's path with it.
+0x0c06d9d0	pathFree	user	Frees a path (pathCreate) and its distance and slope tables.
+0x0c06dd40	pathAt	user	Returns a path's position, three angles and value at a distance along it, each on a straight line or, when the segment's first point has that value's flag bit (0x1 to 0x40), on a cubic curve. Each of the three outputs may be 0.
+0x0c06c844	soundEffect	user	Starts a one-shot sound by its id, as soundPlay does for sequences.
+0x0c06c72c	soundEffectStart	user	Takes a one-shot player's slot for a sound id (soundSlotFind) and sets the sound to start.
+0x0c06c27c	soundSequenceStart	user	Takes a sequence player's slot for a sound id (soundSlotFind) and sets the sound to start.
+0x0c06c0d4	soundSlotFind	user	Returns a free slot in the range that a sound's entry gives. Else it takes the slot with the smallest priority number below the sound's (0 counts as 16), the oldest of those, then the oldest one of the same priority, then one that holds the same id, then the paused slot with the smallest priority number, or returns -1.
+0x0c06c6f4	soundPan	user	A sound's pan from the x of its position.
+0x0c06c6ac	soundLevel	user	Returns a sound's level: its volume plus 0.4 times the size of its position's x, within -127 to 127. In mono it returns the volume.
+0x0c06cb10	soundServer	user	Runs each frame for the 8 sequence and the 20 one-shot slots: starts the sounds that wait with their level, frees the slots whose sounds the library reports done, and counts their age. It pauses and continues the marked sequences, and silences the marked one-shot sounds and gives them their level back.
+0x0c06c648	soundStopSequences	user	Stops every sequence: lets paused ones continue, clears the slots, and stops all in the library.
+0x0c06bcc4	soundInit	user	Opens the sound library's 8 sequence players and 20 one-shot players, and loads SFX_DEFAULT.BIN into slot 0 of soundBankLists.
+0x0c07bc24	enemyDeathBullets	user	Fires bullets of a destroyed enemy's color at the player who made the kill: none on easy, on normal only after a kill of the enemy's own color, and on hard always, fewer and slower after a kill of the other color.
+0x0c07be04	enemyExplosion	user	Makes an enemy's explosion (effectExplosion) with a random angle and turn and a scale within 5 percent of the given one. Then it makes bursts of 8 particles each (effectParticles) at angles spread around 0x8000, 4 bursts when flag 0x40 is set and the low bits are not 1, else 2, and 4 more particles in any direction.
+0x0c080578	effectExplosion	user	Makes an explosion: a task of explosionUpdate and explosionDraw.
+0x0c0810e4	effectParticles	user	Makes a number of particles (effectParticle) with sprite 0x10a02 at a position, at angles spread by a mask around a base angle, and with random speeds and scales around given values.
+0x0c081038	effectParticle	user	Makes a Particle, which flies, slows and shrinks until it is gone or off the screen.
+0x0c08154c	effectBurst	user	Makes an EffectSprite at a position with a velocity, a scale, a depth and a random angle, which flies and grows (burstUpdate). The flag 0x80 picks effectSpriteDrawDepth, and else effectSpriteDraw.
+0x0c083690	effectFlash	user	Makes a flash, such as a ship's muzzle flash (flashUpdate, flashDraw): one of four short animations by kind bits 0 and 1, with sprite flags, a scale (1 when none), an angle and an optional owner task whose position it follows. Kind bit 0x80 gives the depth value 1.0001 instead of 1.001.
+0x0c06d36c	randomSeed	user	Seeds the random numbers (randomState).
+0x0c06d378	randomNext	user	Returns the next random number: randomState becomes ((4s + 2) * (4s + 3)) >> 2 in 32 bits, with s the state before.
+0x0c06d394	randomFloat	user	A random float from -1 to 1.
+0x0c0644b8	mathAtan2	user	The C library's atan2 with its error codes.
+0x0c07b934	hpGaugeCreate	user	Makes the gauge of hit points at each stageStart.
+0x0c07b850	hpGaugeDraw	user	Draws the gauge of hit points, unless a demo plays.
+0x0c07ba08	hpGaugeSet	user	Puts the hit points of the object hit this frame (gaugeSlot) into the gauge.
+0x0c06e204	optionDefaults	user	Writes the default options. It also sets chapterReached to 1, playTime to 0, playTimeNextCredit to 3600, creditsPerGame to 3 and gameClearFlags to 0.
+0x0c06e288	rankingDefaults	user	Writes the default rankings: 100,000 points minus 1,000 for each place, TRE, September 5, 2002.
+0x0c06e558	saveReset	user	Writes the default save block: the options and the rankings.
+0x0c06e1a4	saveCalcSum	user	The sum of the save block's bytes after the identifier and the sum, which saveSum holds.
+0x0c06e5bc	saveImageMake	user	Makes the card file's image in saveImage from saveHeader and the save block.
+0x0c06e598	saveImageFree	user	Frees saveImage when it is set, and sets it to 0.
+0x0c06e6f8	saveWrite	user	Starts to write the save block to the card (buSaveFile) and returns 1, or -1 when that fails. saveWriteDone takes the result. Without `force`, it writes nothing and returns 0 when saveCalcSum is the same as saveSum.
+0x0c06e6ac	saveWriteDone	user	Takes the result of a save when the card is ready again.
+0x0c06e83c	saveRead	user	Starts to read the card file into saveImage.
+0x0c06e798	saveReadDone	user	Takes the result of a load: copies the block from the image when its identifier matches.
+0x0c06e8e4	optionsApply	user	Gives the game the options of the save block: difficulty (difficultyChoice when optionDifficulty is 3), lives, extend and the screen. When saveCheck fails, it first writes the defaults (saveReset) and returns -1. It also sets stereo or mono from the console's sound setting (syCfgGetSoundMode).
+0x0c06e9a4	playTimeAdd	user	Adds the game's time to playTime in seconds (gameFrames / 60), once per game, when the game ends. When playTime reaches playTimeNextCredit, creditsPerGame grows by 1 and the next credit comes 3600 seconds later, and the step after 9 credits gives free play (0xFF). It sets gameClearFlags 0x2, 0x1, 0x4 and 0x8 at 5, 10, 15 and 20 hours, and returns 1 when the credits or the flags changed.
+0x0c071a8c	rankingAdd	user	Puts this game's scores into the rankings of the difficulty at the places in rankPlaces, with the name, the date and the game's settings, and moves the lower entries down. With one player these are the player's total and chapter scores, with two players their added scores in lists 6 to 11. nameEntryFinish calls it at the end of the name entry.
+0x0c079d5c	polygonContains	user	Whether a point, taken relative to an origin, lies inside a polygon of the scenery: within its bounds and on the inner side of each edge. A polygon with flag 0x01 gives the inverse result.
+0x0c06d56c	matrixTranslation	user	The current matrix's position, turned for a vertical screen.
+0x0c06d538	matrixCalcPoint	user	A point that the current matrix transforms, turned for a vertical screen.
+0x0c079114	sphereInView	user	Whether a sphere (x, y, z, radius) reaches the plane z = -depth of stageCamera, with x within 27.5 and y within 37.5 of 0, each widened by the radius.
+0x0c068804	drawFog	user	While DAT_8c1cb148 is set, turns Ninja's fog on or off for the next draws by bit 30 (0x40000000) of a sprite's or model's flags, or Ninja's fade instead when the mode at DAT_8c1cb140 + 4 is 1.
+0x0c068e38	spriteMode	user	Sets the draw mode from a sprite's flags: point sampling with bit 26 (0x4000000) and bilinear filtering without it, the fog (drawFog), and the blending by bits 24 and 25 (0 alpha blending, 1 additive, 2 the sprite's color times the inverse of the color behind, 3 unchanged).
+0x0c068ecc	spriteTexture	user	Sets the texture of a sprite id, which holds the bank in bits 16 to 31, the sprite set in bits 8 to 15 and the sprite in bits 0 to 7. It selects the bank's texture list and the set's texture, plus flag bits 16 to 21 when flag bit 23 (0x800000) is set. Returns the address of the sprite's four corners (NJS_TEXTURE_VTX).
+0x0c06a488	spriteDraw	user	Draws a sprite at a screen position and angle. The id gives the bank, the sprite and the frame, and the flags the blending, the filter and the vertex builder.
+0x0c069060	spriteAtMatrix	user	Draws a sprite at the current matrix's position, projected to the screen.
+0x0c0690dc	spriteAtMatrixOffset	user	Draws a sprite at the current matrix's position, projected to the screen, with the offset added to the position's z for the sprite's depth only (1/-(z + offset)).
+0x0c069160	spriteAtMatrixDepth	user	Draws a sprite at the current matrix's position, projected to the screen, with the given depth value for its corners in place of 1/-z.
+0x0c06887c	modelSetup	user	Sets the draw of a model up from its draw flags: the texture list, the fog (drawFog), lightOff without bit 14 (0x4000) and the bits of njControl3D. With bit 27 (0x8000000) and without bit 31 it sets nothing and returns 0x3f when njCnkModelClip finds the model outside the view. Else it returns 0.
+0x0c06899c	modelDraw	user	Draws model id & 0xffff of bank id >> 16: sets it up (modelSetup) and draws it with the chunk draw function that flags & 0xf picks from the table at 0x8C0CFA80. Flag bit 16 picks the model's second texture list. Returns 0x3f when modelSetup leaves the model out, else 0.
+0x0c06e1cc	saveCheck	user	Returns 0 when the save block's identifier (saveId) is the game's, else -1. optionsApply calls it and writes the defaults (saveReset) on -1.
+0x0c0645d8	stringCopy	user	Copies a string with its end.
+0x0c06bbbc	soundSetStereo	user	Sets the sound to stereo: soundStereo, the library's pan mode and volumes, and the console's setting.
+0x0c06bc3c	soundSetMono	user	Sets the sound to mono: soundStereo, the library's pan mode and volumes, and the console's setting.
+0x0c08422c	playerStart	user	Puts a player into the game: sets the player's bit in playersInGame, clears the scores, and gives the lives and the first extend. The score starts at the player's continues, up to 9.
+0x0c083800	playerJoin	user	A player joins: playerStart, and the buttons from the options.
+0x0c0841c8	playerScoresClear	user	Clears a player's score and the scores for the ranking lists.
+0x0c06718c	fileDirsOpen	user	Opens the disc's directories (fileDirs).
+0x0c0671fc	fileSetDir	user	Changes to a directory of fileDirs.
+0x0c067214	bankClear	user	Clears one of the 16 graphics banks.
+0x0c067274	banksInit	user	Opens the disc's directories and clears the 16 graphics banks.
+0x0c066f7c	fileReadStart	user	Starts to read a file from the disc, one file at a time.
+0x0c067014	fileReadPoll	user	Returns 0 when the read of fileReadStart is done, a positive value while it runs and -1 on an error or when no read is open.
+0x0c067078	fileReadEnd	user	Ends a disc read and closes the file.
+0x0c065e88	chunkNext	user	Reads the chunk at an offset of a Ninja file in memory: copies its data into a new block from syMalloc and adds the block's address to the pointers that the POF0 chunk after it lists. Advances the offset, gives the chunk's tag and returns the block. Returns 0 with the tag 0x2a2a2a2a at a tag it does not know.
+0x0c0672a0	modelFileLoad	user	Loads a model file of a bank's list in steps: keeps the model (NJCM), the texture list (NJTL) and the motions (NMDM), then loads the textures, from a PVM file when the entry names one. With byte 0 of the request set it reads the disc in the background (fileReadStart), else at once (fileLoad). Returns 1 until it is done, then 0, and -1 on an error with an error text at +0x20 of the request.
+0x0c079d24	sceneryAdd	user	Adds a polygon of a stage object to the scenery that ships and shots collide with. Room for 128, not checked.
+0x0c079ebc	sceneryClear	user	Empties the scenery's polygons, at each frame.
+0x0c06d5f8	offScreen	user	Whether a screen position lies outside the screen and a margin: x from -320 to 960, y from -240 to 800.
+0x0c06d670	matrixOffScreen	user	Whether the current matrix's position lies off the screen (offScreen).
+0x0c06d63c	pointOffScreen	user	Whether a point that the current matrix transforms lies off the screen.
+0x0c06d488	pointToPlane	user	Maps a point through the current matrix to the screen (pointOffScreen) and from there to the play plane, in the units of the enemies' positions. On the vertical screen the screen's edges give 30 and -30 in x and 40 and -40 in y, and the horizontal screen uses Ninja's screen centre and scale.
+0x0c0801c4	animStart	user	Starts an Animation: a list of sprites and the frames to show each.
+0x0c0801d4	animStep	user	Moves an Animation on by a frame. Gives 1 at the list's end.
+0x0c0803c8	explosionUpdate	user	The task of an explosion (effectExplosion): moves it by its velocity, multiplies the velocity by its drag factor and turns its sprites. After its first frames it steps its Animation and grows by 1.005 each frame, and from frame 20 it fades by 10 each frame until it ends. With flag 0x80 a second, tinted sprite fades in meanwhile and fades out before the end.
+0x0c080238	explosionDraw	user	Draws an explosion (effectExplosion) at its position: sprite 0x10900 at a size from a table in its first frames, then the current sprite of its Animation, with its alpha and angle. While byte 5 is not 0 it also draws the Animation's sprite at 0.75 of the size, in the color of bytes 5 to 7.
+0x0c080fbc	particleUpdate	user	The task of a particle: shrinks it by its shrink value, moves it by its velocity and slows the velocity to 0.95 each frame. It ends the particle when its scale is no longer above the shrink value. particleDraw ends it off the screen.
+0x0c080f3c	particleDraw	user	Draws a particle's sprite at its position, and ends the particle when it is off the screen (matrixOffScreen).
+0x0c081380	effectFollow	user	Makes an EffectSprite at a position with a scale, an angle and a depth (followUpdate). With an owner task it keeps copying that position and ends when the owner's removal starts. The flag 0x40 picks effectSpriteDrawPlain, 0x80 effectSpriteDrawDepth, and else effectSpriteDraw.
+0x0c0812e8	followUpdate	user	The task of a following EffectSprite: moves it with its task, steps its animation and fades it out after the end.
+0x0c0814c0	burstUpdate	user	The task of effectBurst's EffectSprite: steps its animation, moves it by its velocity and grows its scale by 1.05 at each frame. After the animation's end it loses 0x40 of alpha at each frame and ends at 0x40 or less.
+0x0c0811a4	effectSpriteDraw	user	Draws an EffectSprite's current sprite (its Animation's id) at its position, with its alpha, flags, scale, depth and angle.
+0x0c08121c	effectSpriteDrawDepth	user	Draws an EffectSprite at its position, with the camera's depth taken from its z, and with its depth field as the sprite's depth value (spriteAtMatrixDepth). effectFollow and effectBurst pick it for the flag 0x80.
+0x0c081294	effectSpriteDrawPlain	user	Draws an EffectSprite at its position without the camera's depth, with the sprite's depth from that position (spriteAtMatrix). It does not use the depth field. effectFollow picks it for the flag 0x40.
+0x0c06a7a4	textDraw	user	Draws a text at a screen position, one quad for each character from a font texture that holds a grid of 16 by 8 characters from the space on. Each character takes its width from the font's table (textWidth). Flag bits 8 and 9 align the text along its width and bits 10 and 11 along its height (0 start, 1 middle, 2 end).
+0x0c06a774	textWidth	user	Returns a text's width: the sum of its characters' widths from the font's table (0.5, 0.75 or 1) times 16.
+0x0c06b09c	textPrintf	user	Prints a formatted text at x and y, as sprintf does, with the font's sprites. It prints the boot screen's text.
+0x0c093a34	lensFlareCreate	user	Makes a lens flare task: a light sprite in the direction of its two angles, seen from the camera, and 10 flare sprites. The first callback runs once at the start and the second at each frame, before the task places the light. Chapter 1 makes two: through FUN_8c093b14 from FUN_8c09432c, and through FUN_8c093fac from its stage program (FUN_8c093fc4).
+0x0c06f738	discErrorScreen	user	Draws the disc error screen: two lines that say that the disc could not be read and that the console must be restarted, and `message`, which names the error. It draws it again every 5 vertical blanks until the disc tray opens, then calls syBtExit.
+0x0c0681c8	clipPlayArea	user	With screenHorizontal set, clips the draws to the play area, the 32-pixel tiles 4 to 15 across and 0 to 14 down. Without it, turns the clipping off.
+0x0c068208	clipOff	user	Turns the clipping off for the whole screen.
+0x0c068230	viewPlayArea	user	Sets the clipping and the aspect for the play area.
+0x0c06d0d0	vmuScreenUpdate	user	Runs the picture on the VMU's screen in a controller, with a state for each port.
+0x0c06d2e8	vmuScreenEvent	user	Picks the picture on a port's VMU screen for vmuScreenUpdate, unless the port has no screen ready: 0 the default picture, 1 the chain (vmuChainShow), 2 while a save writes, 3 while a load reads, 4 after a save or a load that worked and 5 after one that failed.
+0x0c06b164	modelMotionFrames	user	Returns the last frame of a model's motion: its frame count minus 1, as a float. The id gives the bank in the high half and the model in the low half.
+0x0c06b1a8	modelMotionStep	user	Moves a motion's frame by a step, backwards with flag 2. Past the last frame (modelMotionFrames) or below 0, flag 1 wraps the frame around, else it stops at that end and the function returns 1.
+0x0c068cf8	modelDrawNodes	user	Draws a model at a frame of a motion, with functions for each node (modelTreeDraw).
+0x0c068c7c	modelTreeDraw	user	Walks a tree of node records for modelDrawNodes. For each node it applies the motion to the matrix (njMotionTransformEx), calls the node's callback with the caller's value and draws the node object's model with the node's draw function or the default one, unless the object's hidden flag (8) is set. Then it walks the node's child, and the node's siblings in turn.
+0x0c068da0	modelDrawMotion	user	Draws a model at a frame of a motion.
+0x0c068f6c	spriteDraw3D	user	Draws a sprite as a quad in the current matrix.
+0x0c07bab0	enemyModelFlags	user	The draw flags of an enemy's model: its color, and a flash in a frame in which it was hit.
+0x0c07bb64	enemyModelDraw	user	Draws an enemy's model with enemyModelFlags.
+0x0c07bb88	enemyModelDrawMotion	user	Draws an enemy's model at a frame of its motion with enemyModelFlags.
+0x0c07cc7c	bulletSpriteCreate	user	Makes a bullet with a color, a position and a velocity, and with the first sprite and the angle that the caller gives. It keeps a pointer to a scale for each draw, none with 0, which every caller in the game passes. bulletSpriteUpdate and bulletSpriteDraw run it in list 4.
+0x0c07cb6c	bulletSpriteUpdate	user	A sprite bullet's task: moves it as bulletUpdate does and animates it through 4 frames.
+0x0c07ca98	bulletSpriteDraw	user	Draws a sprite bullet and files its hit record.
+0x0c07c964	bulletSpinCreate	user	Makes a bullet with a fixed sprite that turns.
+0x0c07c874	bulletSpinUpdate	user	A turning bullet's task: moves it as bulletUpdate does and turns it at each frame.
+0x0c07c7b0	bulletSpinDraw	user	Draws a turning bullet and files its hit record.
+0x0c06b738	lightOn	user	Turns on light 2 of the multi-light models as a point light with a position, a color and a range, and turns the lights into the view (lightsTurnApply). Flag 1 sets it for the Easy models and flag 2 for the Simple models.
+0x0c06b810	lightOff	user	Switches light 2 of the multi-light models off (lightOn's point light): flag 1 for the Easy models and flag 2 for the Simple models.
+0x0c08360c	flashUpdate	user	The task of a flash (effectFlash): while it has an owner task, it copies the followed position and ends when the owner's removal starts. It steps the animation, negates its x scale on random frames and ends at the animation's end.
+0x0c08359c	flashDraw	user	Draws a flash (effectFlash) at its position, with the camera's depth taken from its z, and with its own depth value (spriteAtMatrixDepth).
+0x0c073078	rankingFindPlaces	user	Finds this game's places in the rankings of the difficulty, into rankPlaces, and returns 1 if a score has a place. With one player it ranks the player's total and chapter scores (lists 0 to 5), with two players their added scores (chapterScoresTotal, lists 6 to 11). With two players it does nothing during a name entry and, outside the ending, until both players are out.
+0x0c073218	nameEntryStart	user	Starts a player's name entry: sets its bit in nameEntryPlayers and makes the name entry's task (nameEntryTask) in list 5. playerOut calls it when a score has a place in the rankings.
+0x0c072d74	nameEntryTask	user	The draw of the name entry's task (nameEntryStart): runs the input (nameEntryInput) and draws the entry (nameEntryDraw) for up to 1860 frames, then fills the rest of the name (nameEntryEnd). 90 frames after the name is complete it starts the player's continue (continueStart), except in the ending, and clears the player's bit in nameEntryPlayers.
+0x0c07235c	nameEntryDraw	user	Draws a player's name entry: the seconds left from 30, the score, place and list of each ranking where the game has a place (rankPlaces), and the name's three letters with the cursor.
+0x0c0751c0	hudCreate	user	Makes a player's HUD: a task in list 5.
+0x0c0750f4	hudUpdate	user	The HUD's task: follows chainSet and keeps a complete set on the HUD for 62 frames.
+0x0c0740d4	hudDraw	user	Draws a player's HUD: the score, which in a game with two players changes with their total (scoreTotal), the lives, the chain display, and the energy as a number in the prototype mode, else as the gauge (energyGaugeBuild). For a ship out of the game it shows hudPressStart instead.
+0x0c074bd4	energyGaugeBuild	user	Sets the energy gauge's boxes, which hudDraw draws: a box for each 10 of playerEnergy, which is one homing laser at a release (playerButtons). Full boxes take the polarity's color and a part box pulses. It sets the boxes' places only when the energy changed or the game is paused.
+0x0c072eb8	scoreTotal	user	Adds two scores, with the sum of their last digits held at 9 or less. A score's last digit starts as the player's continues (playerStart). hudDraw and chapterScoresTotal use it for a game with two players.
+0x0c06f1d4	hudPressStart	user	Blinks a text in the place of player 1 or 2 (0 or 1) who does not play: the game-over text when no credit is left or while the player's count at DAT_8c1d140e runs down from 127, which the continue's end sets. Else a text to press Start, or a text to wait while a name entry runs or the player cannot join yet. With 2 it blinks a text to press Start in the middle, or in the tutorial outside the demo a text to skip, only in a trial. It draws nothing while the player continues or enters a name, while gameOver is set, or while sceneRequest is set.
+0x0c0833d8	shipSideEffectCreate	user	Makes the effect at one side of a player's ship while a chapter's sequence flies the ships, a task of shipSideEffectUpdate and shipSideEffectDraw. The sequences of all five chapters make two for each player: flag bit 7 gives the player and flag bit 0 the side.
+0x0c082e90	shipSideEffectUpdate	user	The task of the effect at one side of a player's ship (shipSideEffectCreate). It ends with its parent task, and in step 0 it makes particles from frame 121 and, on the side with flag bit 0 clear, plays sound 0x16 at frame 150. After its parent has moved it to step 2, it starts the player's vibration on that side, narrows and stretches its 3D sprites, waits, then shrinks, fades out and ends.
+0x0c082950	shipSideEffectDraw	user	Draws the effect at one side of a player's ship (shipSideEffectCreate) in the ship's matrix, with sprite flags by the player's polarity. It draws three sprites, one of them turned by its direction from the screen's centre, and from step 3 on two crossed 3D sprites with an animated frame.
+0x0c074a18	hudPlace	user	Places the 12 frames of the energy gauge by the screen's orientation, optionScreenX and optionScreenY, and sets the depth of the gauge's boxes. hudCreate calls it, and hudDraw calls it again while the game is paused.
+0x0c06f004	creditUse	user	Takes a credit for a join or a continue. Returns 0 when no credit is left, and 1 without taking one in free play (credits 0xFF).
+0x0c06f940	playerContinueAdd	user	At a join (playerJoinCheck) or a continue (continueTask), adds the player's continueNext to playerContinues, which stops at 255. continueStart sets continueNext to 1, so a join before the player's first continue does not count.
+0x0c071a08	continueStart	user	Starts the continue for a player: sets its bit in playersContinuing and its continueNext to 1. Outside the ending it sets continueTimer to 9 and makes the continue's task (continueTask, removed by continueEnd).
+0x0c071874	continueTask	user	The draw of the continue's task (continueStart), which draws the continue with continueScreen. On Start with a credit the player joins again (playerJoin) with a continue counted (playerContinueAdd). When the count has run out the continue ends and gameOverCheck may start the game over.
+0x0c071418	continueScreen	user	Draws a player's continue text, which blinks and changes between the count of continueTimer and a second text that depends on the credits, or a wait text during a name entry. Returns 2 when the player presses Start and a credit is left (creditUse), 1 when the count has run out, else 0. A or B skips the rest of the current count.
+0x0c0719c4	continueEnd	user	The removal of the continue's task (continueStart). Unless continueTask ended the task itself, it clears the player's bit in DAT_8c15c590 and sets the player's byte of DAT_8c1d140e to 0x7f.
+0x0c070998	playerJoinCheck	user	Lets a player who is not in the game join with Start when a credit is left (creditUse): counts a continue (playerContinueAdd), calls playerJoin and in the prototype mode sets the energy to 500 - 200 * difficulty. It does nothing during a name entry or while the player's bit in DAT_8c15c590 or DAT_8c15c58c is set. Returns 1 when the player joined.
+0x0c07131c	gameOverCheck	user	Starts the game over when it does not run yet, no player is in the game, no ship is still dying on its last life and no player is at the name entry: makes the game over's task (gameOverTask), fades to black over 180 frames, stops all sounds and plays sound 0x3b. Returns 1 when the game over neither runs nor starts. continueTask calls it when a continue runs out.
+0x0c0711a8	gameOverTask	user	The draw of the game over's task (gameOverCheck): draws two sprites that fade in, and after 180 frames removes the tasks up to level 200 in lists 0 to 6. 120 frames later, with the sprites faded out, it adds the play time (playTimeAdd) and changes to scene 3, the rankings with this game's play data (DAT_8c15c530), or in the practice mode to the title (scene 4).
+0x0c073268	playerOut	user	A player lost the last life: starts the name entry if a score has a place in the rankings (rankingFindPlaces), else the continue (continueStart). With gameNoRanking set it skips the rankings. It also stops the player from pausing (pauseLocked).
+0x0c0879c4	titleTask	user	The draw function of the title's task, which has no update: runs the screen of titleState at each frame. See docs/game.md, The title and its menus. States 12 and 13 free its text lines and, after a wait, request the scene in byte 7 of its data.
+0x0c087cd8	titleDestroy	user	The removal function of the title's task (sceneTitleStart sets it): frees the title's text lines (textLineFree).
+0x0c0840d0	titlePressStart	user	Title state 0: waits for Start, and after 900 frames plays the attract demo, in turns the tutorial, chapter 1 and chapter 2.
+0x0c08432c	mainMenu	user	Title state 1: GAME START, PRACTICE, RANKING, CONFIG, TUTORIAL, APPENDIX, BACKUP and EXIT.
+0x0c084da4	configButtons	user	Title state 2: CONTROLLER SETTING, each player's buttons and vibration.
+0x0c0860d0	rankingMenu	user	Title state 3: the RANKING menu with VIEW RANKING, CLEAR RANKING and EXIT. VIEW RANKING requests scene 3 (sceneRankingStart) and CLEAR RANKING opens title state 4 (rankingResetScreen).
+0x0c086298	rankingResetScreen	user	Title state 4: asks before rankingDefaults clears the rankings.
+0x0c085678	configMenu	user	Title state 5: CONFIG, with MONITOR TYPE, SOUND, DIFFICULTY, TRIAL GAME, EXTEND, PLAYER STOCK, CONTROLLER SETTING, DEFAULT and EXIT.
+0x0c084764	practiceMenu	user	Title state 6: PRACTICE, chapters 1 to 5 for each of the three difficulties. A chapter can be picked when chapterReached for its difficulty is at least its number, and its game then starts with credits 0xff and gamePractice set.
+0x0c0866e8	backupMenu	user	Title state 7: AUTO SAVE, LOAD, SAVE and EXIT, with the play time.
+0x0c086e68	appendixMenu	user	Title state 9: APPENDIX's four items, each shown after a condition, such as a trial cleared with one credit or 5 hours of play.
+0x0c0874d4	appendixViewer	user	Title state 11: the APPENDIX's GALLERY 1, GALLERY 2 and SOUND TEST, by the item that appendixMenu picked. It loads the current entry's picture into bank 2, and left and right step through the entries. X turns the help on or off. In the SOUND TEST, A or C plays the entry's sequence and Y fades it out.
+0x0c07ae98	resultsStart	user	Unless the game is over, makes the results' task in list 0 (resultsUpdate, resultsDraw), which shows the boss destroy bonus, the chapter's score and max chain, and the play rank from the score table that it gets. It sets stageEvents flags 0x02 and 0x08, and outside scene 10 it sets forced flags 0x02 and 0x08 on both ships and clears their release.
+0x0c07adfc	resultsUpdate	user	The task of the results: runs their steps, five a frame while A or B is held.
+0x0c07a8d0	resultsDraw	user	Draws the two sprites 0x11b00 and 0x11b01 of the results at the alpha in its byte 2, which resultsStep fades in and out. The texts are tasks of their own (resultsTextCreate).
+0x0c07a934	resultsStep	user	Runs one frame of the results by their step (byte 0): it waits, shows the boss destroy bonus and adds it to the scores (bossTimeLeft times 10000), stores the chapter scores and shows the chapter's score, max chain and play rank (resultsTextCreate, resultsPlayRank), then fades out. Returns 1 when it is done.
+0x0c07a724	bossTimeClear	user	Clears bossTimeLeft, at each stageStart.
+0x0c07a730	bossTimeAdd	user	Adds a number of seconds to bossTimeLeft. bossTimerUpdate calls it with the seconds left plus 1 when the timer's end flag is set before its time runs out.
+0x0c07b50c	bossTimerCreate	user	Makes a boss's timer, a task in list 4 (bossTimerUpdate, bossTimerDraw), from an owner task, the addresses of a start flag and an end flag, and a number of seconds. The timer counts the seconds down once the start flag is set and sets the end flag when they run out.
+0x0c07b380	bossTimerUpdate	user	The task of a boss's timer: it moves into its place, waits for the start flag, then counts its seconds down once every 60 frames, copied to bossTimer, and sets the end flag when they run out. When the end flag is set first, it adds the seconds left plus 1 to bossTimeLeft (bossTimeAdd). It then blinks for 256 frames and ends, and it ends at once when its owner's task is marked for removal.
+0x0c07b26c	bossTimerDraw	user	Draws a boss timer's text with its seconds, unless nameEntryPlayers has flag 0x02 or the game is over. After the timer stops, the text blinks, hidden 8 of every 32 frames.
+0x0c088eb8	modeSelectUpdate	user	The task of SELECT GAME MODE: with USER SELECT it asks for the difficulty, with TRIAL GAME on for the normal or the trial game, then requests chapter 1 or the tutorial.
+0x0c0888b4	modeSelectDraw	user	Draws the mode select (modeSelectUpdate): its sprites, the choices, hudPressStart for a player who is not in the game, and the seconds left to choose.
+0x0c088e2c	modeSelectCursor	user	Moves the mode select's choice with up and down.
+0x0c088e08	modeSelectDifficulty	user	Sets difficultyChoice and difficulty from the mode select's choice.
+0x0c078ccc	cameraCreate	user	Makes the camera, a task in list 0 whose data stageCamera points at.
+0x0c078b3c	cameraUpdate	user	The camera's task: places it on its orbit about its point (cameraOrbit), mixes that view with the one at target by blend when blend is above 0, turns the main light with its angles (lightAim) and builds its view matrix (cameraView).
+0x0c078a68	cameraDraw	user	Sets the perspective and the view for the draws.
+0x0c078cc0	cameraEnd	user	Clears stageCamera at the camera's removal.
+0x0c078c6c	cameraFlat	user	The draw of the task in list 1 that cameraCreate makes: when the camera's mode is 1, sets the camera's flatPerspective and a unit matrix, turned by -0x4000 on a vertical screen, for the draws that follow.
+0x0c06fa30	stageUnlock	user	Lowers the first byte of stageLocks by 1, so that stage command 3 (stageCmdNextPhase) can go on once it is 0. stageStart, resultsUpdate, bossDeathUpdate and other functions call it.
+0x0c06f654	vibrationStart	user	Makes a player's controller vibrate with a pattern for a time, while the player's vibration is on and no demo plays.
+0x0c06f4e0	vibrationPort	user	Finds the vibration unit in one of a controller's two sockets.
+0x0c06f4b4	vibrationIndex	user	Returns 0, 1, 2 or 3 for the vibration unit at port 1, 2, 7 or 8 (vibrationPort), else -1.
+0x0c06f5d4	vibrationTaskCreate	user	Makes the task that starts a vibration. A newer request for the same unit makes the older task end without starting.
+0x0c06f54c	vibrationTask	user	The task of a vibration: sets the unit's stop time and starts it.
+0x0c078978	cameraOrbit	user	Places the camera on its orbit about the point it follows.
+0x0c078a8c	cameraView	user	Builds the camera's view matrix.
+0x0c06b340	lightAim	user	Turns the main light's direction with the view.
+0x0c06b460	lightsApply	user	Gives the lights to Ninja's draws: the main light's direction and color and the ambient light.
+0x0c06b5f8	lightsReset	user	Sets the light values to their defaults: the main light's two angles to 0, its color to 1, 1, 1 with intensity 1 and ambient 0.25, and three values for the multi-light models to 0.24. gameInit calls it.

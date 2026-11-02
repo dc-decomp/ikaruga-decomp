@@ -344,7 +344,7 @@ typedef struct PathPoint {
     float value;
 } PathPoint;
 
-/* A camera path that pathLoad made from its points. */
+/* A camera path that pathCreate made from its points. */
 typedef struct Path {
     unsigned int count;
     unsigned int unknown_4;
@@ -353,7 +353,7 @@ typedef struct Path {
     float *slopes;              /* 14 for each point: two for each value */
 } Path;
 
-Path *pathLoad(PathPoint *points);
+Path *pathCreate(PathPoint *points);
 void pathFree(Path *path);
 void pathAt(Path *path, NJS_POINT3 *position, int *angle, int *value, float distance);
 

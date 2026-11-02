@@ -110,8 +110,8 @@ void syBtFntClrSmph() {}
 // The glyph of the Shift-JIS character `code` in the boot ROM's 24-dot font, 72 bytes, for the
 // game's text textures. Without a boot ROM image macOS's Hiragino Sans draws it, and ENGLISH TEXT
 // draws its own cells (text.h).
-undefined4 FUN_8c06aa40(gptr<undefined4> out, Sint16 code) {
-    diff::Check check("FUN_8c06aa40", 0x8C06AA40u, out, code);
+undefined4 fontGlyphGet(gptr<undefined4> out, Sint16 code) {
+    diff::Check check("fontGlyphGet", 0x8C06AA40u, out, code);
     uint8_t glyph[72];
     if (text::glyph(static_cast<uint16_t>(code), hw::rom_loaded(), out.a, glyph)) {
         diff::own_state();

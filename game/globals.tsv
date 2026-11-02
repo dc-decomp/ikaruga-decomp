@@ -48,7 +48,7 @@
 0x0c10d30c	_kmyFBAttrib	sdk-r2.00j reference
 0x0c10d3f4	_kmyDarknessExtension	sdk-r2.00j reference
 0x0c10d6cc	_kmyInterruptExtension	sdk-r2.00j reference
-0x0c10e978	lastTextureDmaId	user
+0x0c10e978	lastTextureDmaId	user		The id of Kamui's last texture DMA request, which kmyCopyToTexture writes. kmQueryFinishLastTextureDMA and so njLoadTextureFinishDMA check whether it has finished.
 0x0c10e97c	_kmyBGPlaneExtension	sdk-r2.00j reference
 0x0c10f3ac	_sygChainIsrPool	sdk-r2.00j reference
 0x0c1107c3	_sygG2WrkImg	sdk-r10.1 reference
@@ -77,125 +77,125 @@
 0x0c156114	__vm	sdk-r2.00j reference
 0x0c156118	_buVmsDrive	sdk-r2.00j reference
 0x0c15c488	__errno	sdk-r2.00j reference
-0x0c15c4fc	gamePads	user	PDS_PERIPHERAL *[2]
-0x0c15c504	gamePeripherals	user	PDS_PERIPHERAL *[2]
-0x0c15c560	sceneCurrent	user	uchar
-0x0c15c564	sceneRequest	user	uchar
-0x0c1d13fe	sceneNext	user	uchar
-0x0c15c594	taskLists	user	TaskList[7]
-0x0c1520c8	gameExitRequest	user
-0x0c1cd768	optionHorizontal	user
-0x0c1cd769	optionRotateButtons	user
-0x0c1cd76a	optionAutosave	user
-0x0c1cd76b	optionScreen75	user
-0x0c1cd778	gameClearFlags	user
-0x0c1cd77f	optionPrototype	user
-0x0c1d138c	saveRequest	user
-0x0c1d13ec	playerLives	user	uchar[2]
-0x0c1d1428	scrollPosition	user	float
-0x0c1d142c	scrollSpeed	user	float
-0x0c1d144c	playerScore	user	uint[2]
-0x0c0cfa40	fadeQuad	user	NJS_POLYGON_VTX[4]
-0x0c1d1548	players	user	Player *[2]
-0x0c1d1544	playerInput	user	PlayerInput[2]
-0x0c1d13e8	playerEnergy	user	ushort[2]
-0x0c1d13ee	playerPolarity	user	uchar[2]
-0x0c1d13f6	buttonShot	user	uchar[2]
-0x0c1d13f8	buttonSwitch	user	uchar[2]
-0x0c1d13fa	buttonRelease	user	uchar[2]
-0x0c1d13fc	buttonShotSwitch	user	uchar[2]
-0x0c0d121c	buttonMasks	user	uint[7]
-0x0c1e94a4	scriptGroupCounts	user	uchar[4]
-0x0c1e94a8	scriptGroups	user	void *[4][256]
-0x0c1d13f4	chainSet	user	uchar[2]
-0x0c1d1424	chain	user	ushort[2]
-0x0c1d1448	chainMax	user	ushort[2]
-0x0c1d1454	extendScore	user	uint[2]
-0x0c15c534	gameExtend	user	uchar
-0x0c1e7598	hitSlots	user	HitSlot[200]
-0x0c1d1568	hitLists	user	HitList[5]
-0x0c0d139c	gaugeSlot	user	char
-0x0c15c588	playersInGame	user	uchar
-0x0c15c558	gamePrototype	user	uchar
-0x0c15c578	pauseState	user	uchar
-0x0c15c574	pausePlayer	user	uchar
-0x0c15c56c	pauseEnd	user	uchar
-0x0c15c568	soundPaused	user	uchar
-0x0c15c570	pauseLocked	user	uchar
-0x0c15c584	gameDemo	user	uchar
-0x0c1d1416	stageEvents	user	uchar
-0x0c1d1430	scrollTarget	user	float
-0x0c1d1434	scrollStep	user	float
-0x0c1d143c	demoInput	user
-0x0c1d1410	stageLocks	user
-0x0c1d1400	stagePhase	user	uchar
-0x0c1d13ff	stagePart	user	uchar
-0x0c0d0ce8	stageCommands	user
-0x0c15c55c	gamePractice	user	uchar
-0x0c1d1538	pathPosition	user	NJS_POINT3
-0x0c1d1528	pathAngles	user	int[3]
-0x0c1d1534	pathValue	user	int
-0x0c1d1550	stageCamera	user	Camera *
-0x0c1cb32c	soundSequenceSlots	user	SoundSlot[8]
-0x0c1cb61c	soundEffectSlots	user	SoundSlot[20]
-0x0c1cb22c	soundSequencePlayers	user
-0x0c1cb39c	soundEffectPlayers	user
-0x0c1cb21c	soundBankLists	user	void *[4]
-0x0c1cb19c	soundBankNames	user	char[4][32]
-0x0c1cb73c	soundOff	user	uchar
-0x0c1cb738	soundStereo	user	uchar
-0x0c15c53c	difficulty	user	uchar
-0x0c1cb8d0	randomState	user	uint
-0x0c1e94a0	hpGauge	user
-0x0c1cd758	saveId	user	char[12]
-0x0c1cd764	saveSum	user	int
-0x0c1cd76c	optionTrial	user	uchar
-0x0c1cd76d	optionDifficulty	user	uchar
-0x0c1cd76e	optionLives	user	uchar
-0x0c1cd76f	optionExtend	user	uchar
-0x0c1cd770	optionButtonShot	user	uchar[2]
-0x0c1cd772	optionButtonSwitch	user	uchar[2]
-0x0c1cd774	optionButtonRelease	user	uchar[2]
-0x0c1cd776	optionButtonShotSwitch	user	uchar[2]
-0x0c1cd77a	optionScreenX	user	char
-0x0c1cd77b	optionScreenY	user	char
-0x0c1cd77c	optionVibration	user	uchar[2]
-0x0c1cd77e	creditsPerGame	user	uchar
-0x0c1cd780	chapterReached	user	uchar[3]
-0x0c1cd784	playTimeNextCredit	user	uint
-0x0c1cd788	playTime	user	uint
-0x0c1cd78c	rankings	user
-0x0c1cb8d4	saveHeader	user	BUS_BACKUPFILEHEADER
-0x0c1cb934	saveImage	user	void *
-0x0c15c540	gameLives	user	uchar
-0x0c15c538	difficultyChoice	user	uchar
-0x0c15c50c	credits	user	uchar
-0x0c15c51c	gameFrames	user	uint
-0x0c1cb150	screenHorizontal	user	uchar
-0x0c1cb14c	screen75	user	uchar
-0x0c1d13f0	playerContinues	user	uchar[2]
-0x0c1d1406	rankPlaces	user	uchar[6]
-0x0c1d1402	gameTwoPlayers	user	uchar
-0x0c1d145c	chapterScores	user
-0x0c1ca85c	fileDirs	user	GDFS_DIRREC[10]
-0x0c15c5d0	fileReadHandle	user	GDFS
-0x0c15c5d4	fileReadBuffer	user	void *
-0x0c15c5d8	fileReadSize	user	int
-0x0c1ca888	banks	user
-0x0c1e8e98	sceneryPolygons	user
-0x0c1e9498	sceneryCount	user	uchar
-0x0c1cb8c0	vmuScreenState	user	uchar[4]
-0x0c15c57c	gameTrial	user	uchar
-0x0c1d1401	gameNoRanking	user	uchar
-0x0c1d1412	nameEntryPlayers	user	uchar
-0x0c15c524	frameCount	user	uint
-0x0c1d1411	playersContinuing	user	uchar
-0x0c1d13f2	continueNext	user	uchar[2]
-0x0c1d140c	continueTimer	user	uchar
-0x0c1d1413	gameOver	user	uchar
-0x0c1ea4bd	menuItem	user	uchar
-0x0c1ea4bf	titleState	user	uchar
-0x0c15c580	demoCount	user	uchar
-0x0c1e949c	bossTimeLeft	user	ushort
-0x0c1ea4a8	bossTimer	user	uint
-0x0c1d13d0	vibrationRequests	user	uchar[4]
+0x0c15c4fc	gamePads	user	PDS_PERIPHERAL *[2]	The game's copies of the two controllers, made each frame by gameReadPad.
+0x0c15c504	gamePeripherals	user	PDS_PERIPHERAL *[2]	Shinobi's records of the two controllers.
+0x0c15c560	sceneCurrent	user	uchar	The scene that runs: 1 boot, 2 logos, 3 rankings (sceneRankingStart), 4 title, 5 mode select, 6 to 10 the chapters, 11 tutorial, 12 ending.
+0x0c15c564	sceneRequest	user	uchar	The scene to change to at the next frame, 0 for none.
+0x0c1d13fe	sceneNext	user	uchar	The scene that follows the stage, which each chapter's start and the tutorial's start set. stageCmdEnd and the tutorial's exit in stageDraw change to it.
+0x0c15c594	taskLists	user	TaskList[7]	The 7 task lists, each its first and last task.
+0x0c1520c8	gameExitRequest	user		Set to 1 when the disc tray opens, when gameFrame returns nonzero, or at a controller reset in the attract mode or in scene 1. gameMain's loop then ends, but not while a save is being written.
+0x0c1cd768	optionHorizontal	user		MONITOR TYPE: 1 for the two horizontal types, 0 for the two vertical ones. optionsApply copies it to screenHorizontal, and saveCalcSum sums the save block from this byte on.
+0x0c1cd769	optionRotateButtons	user		1: gameReadPad turns the pads' directions a quarter turn (left to down, right to up, up to left, down to right). The config menu sets it only with a vertical monitor type.
+0x0c1cd76a	optionAutosave	user		AUTO SAVE: 1, gameEnterScene writes the save to the card when saveRequest is set. The backup menu toggles it, and a failed save sets it to 0.
+0x0c1cd76b	optionScreen75	user		1: the horizontal screen at 75%, 0: at 80%.
+0x0c1cd778	gameClearFlags	user		Four bits that open the appendix menu's items: 0x2 the first gallery, 0x1 the second gallery, 0x4 the sound test and 0x8 the game mode choice. The ending sets 0x1 for a clear, 0x4 or 0x8 for a clear without continues at easy or normal, 0x2 for a trial clear without continues, and playTimeAdd sets 0x2, 0x1, 0x4 and 0x8 after 5, 10, 15 and 20 hours of play.
+0x0c1cd77f	optionPrototype	user		1: the prototype mode, in which shots cost energy.
+0x0c1d138c	saveRequest	user		Set: the next scene change saves to the card, with optionAutosave on.
+0x0c1d13ec	playerLives	user	uchar[2]	Each player's spare lives, without the ship in play. playerStart sets gameLives - 1, scoreAdd adds one at extendScore, and a ship lost at 0 puts the player out.
+0x0c1d1428	scrollPosition	user	float	The stage's scroll, the position along the stage's path that pathAt reads. stageUpdate adds scrollSpeed each frame and stops it at the path's end, and stage commands and scripts wait until it reaches their positions.
+0x0c1d142c	scrollSpeed	user	float	The scroll's speed, a float, which moves toward scrollTarget.
+0x0c1d144c	playerScore	user	uint[2]	Each player's score.
+0x0c0cfa40	fadeQuad	user	NJS_POLYGON_VTX[4]	The fade's four corners, a polygon over the whole screen.
+0x0c1d1548	players	user	Player *[2]	Each player's ship (Player).
+0x0c1d1544	playerInput	user	PlayerInput[2]	Each player's directions and buttons in this frame, held and newly pressed: 1 up, 2 down, 4 left, 8 right, 0x10 shot, 0x20 switch, 0x40 release. playerReadInput makes it from the controller, demoInputRead from the recorded input.
+0x0c1d13e8	playerEnergy	user	ushort[2]	Each player's energy for homing lasers: a release fires one laser for each 10, up to 12. It holds up to 120, or up to 999 in the prototype mode, where shots spend it too.
+0x0c1d13ee	playerPolarity	user	uchar[2]	Each player's polarity, 0 or 1, which playerSetPolarity keeps and playerCreate gives the ship at the next stage start. playerStart sets it to 0.
+0x0c1d13f6	buttonShot	user	uchar[2]	Each player's shot button: an index into buttonMasks, which playerJoin copies from optionButtonShot.
+0x0c1d13f8	buttonSwitch	user	uchar[2]	Each player's switch button: an index into buttonMasks, which playerJoin copies from optionButtonSwitch.
+0x0c1d13fa	buttonRelease	user	uchar[2]	Each player's release button: an index into buttonMasks, which playerJoin copies from optionButtonRelease.
+0x0c1d13fc	buttonShotSwitch	user	uchar[2]	Each player's setting that shot and switch pressed together release too.
+0x0c0d121c	buttonMasks	user	uint[7]	The controller bits of the 7 button choices of the controller settings: A, B, R or C, X, Y, L or Z, and none.
+0x0c1e94a4	scriptGroupCounts	user	uchar[4]	The number of members in each of the 4 script groups.
+0x0c1e94a8	scriptGroups	user	void *[4][256]	The 4 stage script groups, up to 256 members each, which a record can wait to be empty.
+0x0c1d13f4	chainSet	user	uchar[2]	Each player's current set of kills: its color in the high 4 bits and its kills in the low 4.
+0x0c1d1424	chain	user	ushort[2]	Each player's chain: the completed sets of three kills of one color in a row.
+0x0c1d1448	chainMax	user	ushort[2]	Each player's longest chain in this stage. stageStart clears it, and chapterScoresStore keeps it for the chapter.
+0x0c1d1454	extendScore	user	uint[2]	Each player's score for the next extra life.
+0x0c15c534	gameExtend	user	uchar	The game's EXTEND, which optionsApply copies from optionExtend. playerStart and scoreAdd read it.
+0x0c1e7598	hitSlots	user	HitSlot[200]	The 200 objects that homing lasers can aim at, with where each was drawn and the damage on its way to it.
+0x0c1d1568	hitLists	user	HitList[5]	This frame's hit records, in 5 lists: ships, fields, shots, enemies and bullets.
+0x0c0d139c	gaugeSlot	user	char	The laser slot of the object hit this frame, whose hit points the gauge shows.
+0x0c15c588	playersInGame	user	uchar	The players in the game, a bit each: 0x01 player 1, 0x02 player 2. playerStart sets a player's bit, and a hit with no spare life clears it.
+0x0c15c558	gamePrototype	user	uchar	1 in the prototype mode.
+0x0c15c578	pauseState	user	uchar	The pause: 1 paused, 2 to pause at the next frame.
+0x0c15c574	pausePlayer	user	uchar	The players who hold the pause, a bit each. pauseUpdate sets it to 1 or 2 for the player who pressed Start, and the pause menu clears a player's bit. At 0 the pause menu ends the pause, and gameTaskFrame counts gameFrames only while it is 0.
+0x0c15c56c	pauseEnd	user	uchar	A 1 here ends the pause.
+0x0c15c568	soundPaused	user	uchar	1 while the pause holds the sound.
+0x0c15c570	pauseLocked	user	uchar	The players who cannot pause, a bit each. gameEnterScene locks both, a chapter's start unlocks the players in the game, joining or continuing unlocks a player, and losing the last ship or going out locks the player again.
+0x0c15c584	gameDemo	user	uchar	1 in the attract mode: set after the boot's card check, at the end of a game and when the main menu is left, and cleared by Start on the title. The demos, the logos and the title before Start run with it.
+0x0c1d1416	stageEvents	user	uchar	What happened in this frame, cleared by stageUpdate: 0x02 the bullets vanish.
+0x0c1d1430	scrollTarget	user	float	The speed that the scroll moves toward.
+0x0c1d1434	scrollStep	user	float	How much the scroll's speed moves toward its target in a frame.
+0x0c1d143c	demoInput	user		The read position in the recorded input of a demo or the tutorial, which demoStart sets and stageStart clears. While it is not 0, demoInputRead gives player 1's ship this input instead of the pad's.
+0x0c1d1410	stageLocks	user		The stage's lock bytes: command 2 raises the first, command 3 waits until stageUnlock lowers it to 0, command 4 waits for any byte from here to be 0, and the ease commands hold one as their task's lock. stageStart clears 20 bytes from here, which also hold playersContinuing, nameEntryPlayers, gameOver and stageEvents.
+0x0c1d1400	stagePhase	user	uchar	A counter that stage command 3 raises. Command 6 and stageStart set it to 0.
+0x0c1d13ff	stagePart	user	uchar	A counter that the stage program raises (command 6).
+0x0c0d0ce8	stageCommands	user		The stage program's commands by number. See docs/game.md, The stage program.
+0x0c15c55c	gamePractice	user	uchar	1 in the practice mode, which returns to the title after the chapter.
+0x0c1d1538	pathPosition	user	NJS_POINT3	The stage path's point at scrollPosition, from pathAt. The camera orbits about it, and the draws of objects on the path start from it.
+0x0c1d1528	pathAngles	user	int[3]	The stage path's three angles at scrollPosition, from pathAt. stageUpdate adds them to the camera's orbit, and the draws on the path turn by them.
+0x0c1d1534	pathValue	user	int	The path's seventh value at scrollPosition.
+0x0c1d1550	stageCamera	user	Camera *	The camera's structure (Camera), while a camera task lives.
+0x0c1cb32c	soundSequenceSlots	user	SoundSlot[8]	The game's slot for each of the 8 sequence players (soundSequencePlayers): the sequence to play, its level and pan, and its state. soundServer starts, pauses and resumes the players from it.
+0x0c1cb61c	soundEffectSlots	user	SoundSlot[20]	The game's slot for each of the 20 one-shot players (soundEffectPlayers): the sound to play, its level and pan, and its state. soundServer starts, pauses and resumes the players from it.
+0x0c1cb22c	soundSequencePlayers	user		The sound library's 8 MIDI sequence players.
+0x0c1cb39c	soundEffectPlayers	user		The sound library's 20 one-shot players.
+0x0c1cb21c	soundBankLists	user	void *[4]	The 4 loaded lists of sound banks. Slot 0 holds SFX_DEFAULT.BIN's.
+0x0c1cb19c	soundBankNames	user	char[4][32]	The file names of the sound bank lists.
+0x0c1cb73c	soundOff	user	uchar	1: no sound starts.
+0x0c1cb738	soundStereo	user	uchar	1: sounds get a pan and a volume from their position.
+0x0c15c53c	difficulty	user	uchar	The game's difficulty: 0 easy, 1 normal, 2 hard.
+0x0c1cb8d0	randomState	user	uint	The random numbers' state.
+0x0c1e94a0	hpGauge	user		The data of the hit point gauge's task, which hpGaugeCreate makes at the stage start. hpGaugeSet puts the hit points of the object in gaugeSlot into it.
+0x0c1cd758	saveId	user	char[12]	The save block's identifier, IK-BKUP 1.2.
+0x0c1cd764	saveSum	user	int	The sum of the save block's other bytes (saveCalcSum).
+0x0c1cd76c	optionTrial	user	uchar	TRIAL GAME: 1, GAME START goes to the mode select, which offers the trial game (gameTrial). The config menu toggles it, and it is 1 by default.
+0x0c1cd76d	optionDifficulty	user	uchar	DIFFICULTY: 0 EASY, 1 NORMAL, 2 HARD, or 3 USER SELECT, which chooses at the mode select (difficultyChoice). optionsApply sets difficulty from it.
+0x0c1cd76e	optionLives	user	uchar	PLAYER STOCK: the lives at the start, 1 to 5 and 3 by default. optionsApply copies it to gameLives.
+0x0c1cd76f	optionExtend	user	uchar	EXTEND: 0 none, 1 one every 2,000,000, 2 one at 3,000,000 and then every 5,000,000 more, 3 one at 6,000,000 and one at 15,000,000. optionsApply copies it to gameExtend.
+0x0c1cd770	optionButtonShot	user	uchar[2]	Each player's shot button in CONFIG, an index into buttonMasks (0 to 6, A by default). playerJoin copies it to buttonShot.
+0x0c1cd772	optionButtonSwitch	user	uchar[2]	Each player's switch button in CONFIG, an index into buttonMasks (0 to 6, B by default). playerJoin copies it to buttonSwitch.
+0x0c1cd774	optionButtonRelease	user	uchar[2]	Each player's release button in CONFIG, an index into buttonMasks (0 to 6, R or C by default). playerJoin copies it to buttonRelease.
+0x0c1cd776	optionButtonShotSwitch	user	uchar[2]	Each player's setting in CONFIG that shot and switch pressed together release too, 1 by default. playerJoin copies it to buttonShotSwitch.
+0x0c1cd77a	optionScreenX	user	char	The HUD's offset in x, in steps of 4 from -28 to 12, which left and right change in the pause menu. hudPlace and the other HUD draws move the HUD by it, the other way for player 2.
+0x0c1cd77b	optionScreenY	user	char	The HUD's offset in y, in steps of 4 from -28 to 12, which up and down change in the pause menu. hudPlace and the other HUD draws move the HUD by it.
+0x0c1cd77c	optionVibration	user	uchar[2]	Each player's vibration, on or off.
+0x0c1cd77e	creditsPerGame	user	uchar	The credits that sceneTitleStart gives a game, 3 at first. playTimeAdd adds one for each hour of play up to 9, and an hour after that sets 0xFF, free play.
+0x0c1cd780	chapterReached	user	uchar[3]	For each difficulty, the highest chapter that a game reached without a continue, 1 at first. PRACTICE offers the chapters up to it.
+0x0c1cd784	playTimeNextCredit	user	uint	The play time at which the next credit comes.
+0x0c1cd788	playTime	user	uint	The seconds of play, up to 1,000 hours.
+0x0c1cd78c	rankings	user		The rankings: 4 tables of 12 lists of 20 entries (RankEntry), which rankingDefaults fills. rankingFindPlaces and rankingAdd use the table of difficulty, lists 0 to 5 for one player and 6 to 11 for two.
+0x0c1cb8d4	saveHeader	user	BUS_BACKUPFILEHEADER	The card file's header.
+0x0c1cb934	saveImage	user	void *	The card file's image while the card reads or writes it.
+0x0c15c540	gameLives	user	uchar	The game's PLAYER STOCK, which optionsApply copies from optionLives and demoStart takes from the demo's record. playerStart gives one less as spare lives.
+0x0c15c538	difficultyChoice	user	uchar	The difficulty chosen at the mode select, in the practice menu or for the tutorial, 1 at power-on. While optionDifficulty is 3, optionsApply sets difficulty from it.
+0x0c15c50c	credits	user	uchar	The credits left in this game. 0xFF: free play.
+0x0c15c51c	gameFrames	user	uint	The frames since the game's start, without those while a player holds the pause (pausePlayer). playTimeAdd turns them into seconds of playTime.
+0x0c1cb150	screenHorizontal	user	uchar	The game's copy of optionHorizontal, which optionsApply makes. With 0, a vertical screen, screenPlace turns 2D positions a quarter turn and cameraFlat turns the view.
+0x0c1cb14c	screen75	user	uchar	The game's copy of optionScreen75.
+0x0c1d13f0	playerContinues	user	uchar[2]	Each player's continues, up to 255. A player who joins starts with it as the score, up to 9.
+0x0c1d1406	rankPlaces	user	uchar[6]	This game's place in each of the 6 ranking lists, 0xFF for none.
+0x0c1d1402	gameTwoPlayers	user	uchar	1 once both players are in the game.
+0x0c1d145c	chapterScores	user		Three blocks of 6 entries, each a score and a longest chain, for player 1, player 2 and both players together (chapterScoresTotal), with the game's total in entry 0 and each chapter's part in entries 1 to 5. rankingFindPlaces compares them with ranking lists 0 to 5, or for two players with lists 6 to 11.
+0x0c1ca85c	fileDirs	user	GDFS_DIRREC[10]	The disc's directories that fileSetDir changes to.
+0x0c15c5d0	fileReadHandle	user	GDFS	The file that the disc reads now.
+0x0c15c5d4	fileReadBuffer	user	void *	Where the disc read goes.
+0x0c15c5d8	fileReadSize	user	int	The size of the file that the disc reads.
+0x0c1ca888	banks	user		The 16 graphics banks (Bank): models, sprites and a texture list each.
+0x0c1e8e98	sceneryPolygons	user		Room for 128 scenery polygons (SceneryPolygon), an origin and a polygon each. sceneryAdd adds them during a frame, sceneryClear empties them each frame, and sceneryHit tests the ships, shots, lasers and bullets against them.
+0x0c1e9498	sceneryCount	user	uchar	The number of polygons in sceneryPolygons.
+0x0c1cb8c0	vmuScreenState	user	uchar[4]	The state of the VMU screen in the first socket of each controller (ports A1 and B1): 0 none, 1 to 8 what to show, 9 writing it. vmuScreenEvent picks what to show, and vmuScreenUpdate runs it.
+0x0c15c57c	gameTrial	user	uchar	1 in a trial game.
+0x0c1d1401	gameNoRanking	user	uchar	1 in a game that enters no ranking: a practice or a trial.
+0x0c1d1412	nameEntryPlayers	user	uchar	The players at the name entry.
+0x0c15c524	frameCount	user	uint	The frames since gameInit.
+0x0c1d1411	playersContinuing	user	uchar	The players at the continue, a bit each.
+0x0c1d13f2	continueNext	user	uchar[2]	Each player's 1 once a join counts as a continue.
+0x0c1d140c	continueTimer	user	uchar	The continue's countdown, from 9.
+0x0c1d1413	gameOver	user	uchar	1 once the game over runs.
+0x0c1ea4bd	menuItem	user	uchar	The cursor of the title menu that runs. In the controller settings it is player 1's cursor, and the next byte player 2's.
+0x0c1ea4bf	titleState	user	uchar	The title's screen. See docs/game.md, The title and its menus.
+0x0c15c580	demoCount	user	uchar	The count of attract demos, which titlePressStart raises before each one. Its value mod 3 picks the demo: 0 the tutorial, 1 chapter 1, 2 chapter 2.
+0x0c1e949c	bossTimeLeft	user	ushort	The seconds left on the boss timers whose bosses died in time, which bossTimeAdd sums and stageStart clears. The results pay 10,000 points for each second (BOSS DESTROY BONUS).
+0x0c1ea4a8	bossTimer	user	uint	The seconds left on the boss's timer.
+0x0c1d13d0	vibrationRequests	user	uchar[4]	A count of requests for each of the 4 vibration units (sockets 1 and 2 of each controller), which vibrationStart raises. A vibration task whose count is no longer the current one ends without starting.

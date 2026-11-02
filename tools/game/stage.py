@@ -86,21 +86,29 @@ def program(image: Image, start: int, named: dict[int, str]) -> None:
 
 
 def script(image: Image, start: int, named: dict[int, str]) -> None:
-    at = start
-    while True:
+    # The records that next and branch reach, also past an end record that a branch skips. An end
+    # record (0x8000) still waits for its condition and runs its function, then the script ends.
+    reached, todo = set(), [0]
+    while todo:
+        index = todo.pop()
+        if index in reached:
+            continue
+        reached.add(index)
+        flags, step, branch = struct.unpack("<HBB", image.bytes(start + index * 0x4C, 4))
+        if not flags & 0x8000:
+            todo += [index + n for n in (step, branch) if n]
+    for index in sorted(reached):
+        at = start + index * 0x4C
         flags, step, branch, value, function = struct.unpack("<HBBiI", image.bytes(at, 12))
-        if flags & 0x8000:
-            print(f"0x{at:08x}  end")
-            return
         conditions = []
         for bit, text in FLAGS:
             if flags & bit:
                 group = (flags >> 4) & 3 if bit == 0x0080 else (flags >> 8) & 3 if bit == 0x0800 else None
                 conditions.append(text if group is None else f"{text} {group}")
         data = image.bytes(at + 12, 64).rstrip(b"\0").hex()
+        end = ", end" if flags & 0x8000 else ""
         print(f"0x{at:08x}  {', '.join(conditions) or 'wait'}: {value}, next {step}, branch {branch}, "
-              f"{show(function, 'c', named)} {data}")
-        at += 0x4C
+              f"{show(function, 'c', named)}{end} {data}")
 
 
 def main() -> int:

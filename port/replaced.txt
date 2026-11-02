@@ -4,7 +4,7 @@
 # The wrappers around the boot ROM's vectors (port/src/bios.cpp); the drive's are not reached.
 syBtFntGet
 # The game's glyph of the ROM font, which Hiragino draws without a boot ROM image (port/src/bios.cpp).
-FUN_8c06aa40
+fontGlyphGet
 syBtFntChkSmph
 syBtFntClrSmph
 kbCfgIni
