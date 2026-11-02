@@ -2,8 +2,8 @@
 
 How to work on the port: the analysis in more detail, the reference build, names and types, and
 the checks that show what a change does. The [README](../README.md) has the build and the game.
-[progress.md](progress.md) has the status, the decisions and the measurements, and
-[game.md](game.md) how the game runs.
+[architecture.md](architecture.md) has the decisions, the measurements and the native port's
+design, and [game.md](game.md) how the game runs.
 
 ## The analysis
 
@@ -191,7 +191,7 @@ env IKARUGA_DIFF=1 \
 `IKARUGA_DIFF_FROM=54500` starts the tests at frame 54,500, so that the functions get new tests in a
 later stage. The test cannot run a call inside another tested call, so the report names the
 functions that the run calls only there: test these alone with `IKARUGA_DIFF_ONLY`.
-[progress.md](progress.md) describes what the test can and cannot find.
+[architecture.md](architecture.md) describes what the test can and cannot find.
 
 **The milestones.** To check that a change still lets the game reach its milestones, whatever it
 does to the timing, run `tools/port/check.py`. It plays the whole game with `IKARUGA_AUTOPLAY`, in
@@ -285,4 +285,4 @@ These variables show what a run does:
 | `IKARUGA_SH4_PROFILE=1` | Prints, at the end, the interpreted instructions per function that the C++ called, nested calls included |
 | `IKARUGA_INTERPRET_ALL=1` | Runs all game code on the SH-4 interpreter, except the functions that the port replaces (`port/replaced.txt`). The boot is slow. |
 
-How the runtime works is in [progress.md](progress.md), "Native port".
+How the runtime works is in [architecture.md](architecture.md), "Native port".

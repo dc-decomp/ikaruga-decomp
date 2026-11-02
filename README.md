@@ -37,8 +37,8 @@ Metal.
 Ghidra decompiles the boot executable `1ST_READ.BIN` into one C file per function. Ghidra's stock
 SH-4 language gets the Dreamcast FPU code wrong, so this repository builds a patched language
 first. `tools/decomp/convert.py` turns the C into C++ that runs on the host, with the console's
-memory as an array that the C++ reads and writes. [docs/progress.md](docs/progress.md) records what
-was patched and converted, and why.
+memory as an array that the C++ reads and writes. [docs/architecture.md](docs/architecture.md)
+records what was patched and converted, and why.
 
 The port gives the game what the console and its system software gave it:
 
@@ -240,12 +240,12 @@ At 4X and more, the last boss's explosion takes the GPU longer than a frame for 
 second, and the game falls behind there by a few frames. A slower GPU reaches that limit at a
 lower resolution. Most of an explosion's layers only add to the pixel, and their sum does not
 depend on their order, so the renderer sums them instead of sorting them, and the GPU's own
-blending adds them where no other layer lies around them ([docs/todo.md](docs/todo.md)).
+blending adds them where no other layer lies around them.
 
 The game's code and the SDK's graphics functions that it calls run as native code. The window
 queues each picture behind its render on the GPU, so the CPU goes on with the next frame while the
 GPU draws. About half of the CPU time that a frame needs without the renderer goes to the sound:
-dream-recomp's emulation of the AICA's mixer, its DSP and its ARM7 ([docs/todo.md](docs/todo.md)).
+dream-recomp's emulation of the AICA's mixer, its DSP and its ARM7.
 
 The latency has three parts. Ikaruga reads the controls once a frame, so a press waits up to a
 frame, 8.3 ms on average, and the game moves the ship in that frame already. The game shows each
@@ -285,10 +285,9 @@ refreshes on the screen is a judder in the scrolling. `IKARUGA_PACING=1` counts 
 | `dream-recomp/` | dream-recomp, a submodule at the commit that this repository builds and runs with |
 | `game/` | The title config, the symbol tables and the game's types. `game/extracted/` holds the disc files. |
 | `docs/development.md` | Working on the port: the analysis, names and types, the reference build and the checks |
-| `docs/progress.md` | Status, decisions, measurements and the plan |
+| `docs/architecture.md` | The design: the layers of the code, the decisions, the native port and the known gaps |
 | `docs/native-platform.md` | What the game needs from the platform, and the steps to a native one |
 | `docs/game.md` | How the game runs: its frame, its scenes, its task system and its named data |
-| `docs/todo.md` | Work that is understood and put off |
 | `CMakeLists.txt` | Builds dream-recomp and the recompiled title, for the reference build |
 
 ## Legal

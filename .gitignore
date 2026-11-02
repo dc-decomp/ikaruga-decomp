@@ -35,6 +35,10 @@ compile_commands.json
 # Launcher run output: reports, suggested configs, hashes, screenshots
 runs/
 
+# Working notes, kept local
+docs/progress.md
+docs/todo.md
+
 # Claude Code session state
 .claude/.cc-writes/
 
