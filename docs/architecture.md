@@ -7,8 +7,8 @@ behind the analysis and the native port, and the known gaps.
 
 Each library is linked as one block. `tools/decomp/layers.py` assigns every function to a layer by
 address and lists the library functions that the game's code calls directly. The startup code calls
-the game's main loop, `FUN_8C056A20`, which is linked between the sound library and the second
-block of Shinobi.
+the game's main loop, `FUN_8C056A20` (gameMain), which is linked between the sound library and the
+second block of Shinobi.
 
 | Layer | Functions | Bytes | Functions the game calls |
 | --- | --- | --- | --- |
@@ -110,24 +110,25 @@ Ghidra 12.2 resolves `mov.l @(disp,pc),rN; jmp @rN` during its analysis, before 
 functions. It then follows such a jump, and a `bra` to a shared tail, into the target, and the
 function before the target takes its code in. A seed inside a function whose code before the seed
 belongs to another function is such a target. `SeedFunctions.java` makes the unconditional jumps to
-it call-returns and makes it a function. This splits 8 seeds, `syMemSet2` and `FUN_8c091180` among
-them, and Ghidra 12.2 then finds the same 3,696 functions with the same sizes as 12.1.4.
+it call-returns and makes it a function. This splits 8 seeds, `syMemSet2` and `FUN_8c091180`
+(ch1BossMotion) among them, and Ghidra 12.2 then finds the same 3,696 functions with the same sizes
+as 12.1.4.
 
 ### Switch tables from dream-recomp, prototypes from the decompiler
 
 Ghidra lost SHC's absolute switch tables when a case target was seeded as a function before the
-dispatcher was analysed. `FUN_8c08fe04` decompiled as a 142-byte call through `PTR_FUN_8c08fea4`,
-and each of its 27 cases became a function that read the dispatcher's `r12` as `unaff_r12`.
-dream-recomp's discovery now writes its tables (`switch_tables` in the `discover` JSON).
-`analyze.sh` leaves the case targets out of the seeds, and `ApplySwitchTables.java` writes each
-table as a jump-table override on its dispatcher. `FUN_8c08fe04` is now one function of 3,582 bytes
-with a `switch` over its 27 cases.
+dispatcher was analysed. `FUN_8c08fe04` (ch1BossUpdate) decompiled as a 142-byte call through
+`PTR_FUN_8c08fea4`, and each of its 27 cases became a function that read the dispatcher's `r12` as
+`unaff_r12`. dream-recomp's discovery now writes its tables (`switch_tables` in the `discover`
+JSON). `analyze.sh` leaves the case targets out of the seeds, and `ApplySwitchTables.java` writes
+each table as a jump-table override on its dispatcher. `FUN_8c08fe04` is now one function of 3,582
+bytes with a `switch` over its 27 cases.
 
 `CommitPrototypes.java` decompiles each function without a header prototype, callees first, and
 commits the parameters and any non-void return value. Before, the decompiler guessed the arguments
-at each call site, so `FUN_8c07ba08` was called with no argument in one place and with one in the
-next. A first version also committed `void` returns, which made 1,408 `extraout_` uses where
-callers read `r0`. Without the `void` returns there are 551.
+at each call site, so `FUN_8c07ba08` (hpGaugeSet) was called with no argument in one place and with
+one in the next. A first version also committed `void` returns, which made 1,408 `extraout_` uses
+where callers read `r0`. Without the `void` returns there are 551.
 
 `FixupFlow.java` repairs three defects that the decompiler cannot get past:
 
