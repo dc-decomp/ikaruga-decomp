@@ -1,7 +1,7 @@
 // Post-analysis: callee-saved registers that a function reads as inputs become parameters.
 //
 // SHC calls some local helpers with an object still in a callee-saved register of the caller. The
-// stage 1 boss's state machine (FUN_8c08fe04) keeps the boss in r12, and its helpers FUN_8c091180,
+// stage 1 boss's state machine (ch1BossUpdate) keeps the boss in r12, and its helpers ch1BossMotion,
 // FUN_8c090d14 and FUN_8c090e70 read it there. The decompiler shows such a read as unaff_r12, an
 // input without a value, so the C++ helper animated whatever was at address 0, the animation never
 // ended, and the boss never came. A function that reads r8 to r14 before writing it gets a

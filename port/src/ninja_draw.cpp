@@ -756,12 +756,12 @@ void njSetCurrentContext(int param_1) {
 }
 
 // The game's hooks at 0x8C0CCD8C and 0x8C0CCD90.
-void FUN_8c010910() {
-    diff::Check check("FUN_8c010910", 0x8C010910u);
+void njEORCallback() {
+    diff::Check check("njEORCallback", 0x8C010910u);
     hook(0x8C0CCD8Cu);
 }
-void FUN_8c010926() {
-    diff::Check check("FUN_8c010926", 0x8C010926u);
+void njEOVCallback() {
+    diff::Check check("njEOVCallback", 0x8C010926u);
     hook(0x8C0CCD90u);
 }
 

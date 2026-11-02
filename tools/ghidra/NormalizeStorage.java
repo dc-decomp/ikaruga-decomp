@@ -9,9 +9,9 @@
 // fr10 and fr11 are the seventh and eighth float arguments of the calling convention. A prototype
 // with parameters for every argument register up to the highest one used, ints in r4 to r7 and
 // floats in fr4 to fr11, puts each parameter where the function reads it, with ordinary storage.
-// Words on the stack stay after r7, where the convention puts them: FUN_8c080578 takes a float in
+// Words on the stack stay after r7, where the convention puts them: effectExplosion takes a float in
 // fr6, four words and a stack word, and its callers passed the float as an integer word.
-// FUN_8c082918 read r4 and two stack words and passed r5 to r7 on unread; with only r4 and the
+// chargeParticlePlayer read r4 and two stack words and passed r5 to r7 on unread; with only r4 and the
 // stack words as parameters, every caller dropped the parent object in r5, and the task
 // it made read its parent at address -23. A function with stack words gets all four word
 // registers. A parameter without a register the function reads is named arg_rN or arg_frN.

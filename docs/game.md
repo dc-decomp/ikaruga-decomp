@@ -201,18 +201,18 @@ path at each point. Each frame, `stageProgramRun` finds the camera on the path a
 (`pathAt`): `pathPosition`, `pathAngles` and `pathValue`. Between two points, each value moves in a
 straight line, or on a cubic curve where the point's flags have the value's bit. `stageUpdate` then
 adds the stage program's offsets to the three angles and the value, and copies them into the camera
-(`Camera`) that `stageCamera` points at as the four angles of its orbit. From the values that the
+(`Camera`) that `sceneCamera` points at as the four angles of its orbit. From the values that the
 stage program sets, it also copies the orbit's distance, the offset, the perspective (`unknown_90`,
 which `cameraOrbit` copies to `perspective`), the flat view's perspective and the depth that the
 objects take from their z when they draw. The orbit turns about `pathPosition`, which `stageStart`
 gives the camera as `follow`.
 
-`cameraCreate` makes the camera, a task in list 0 whose data `stageCamera` points at, at the start
+`cameraCreate` makes the camera, a task in list 0 whose data `sceneCamera` points at, at the start
 of the mode select, of each stage (`stageStart`, the chapters and the tutorial), of the ranking
 scene and of the ending. `cameraUpdate` places it on its orbit about the point `follow`
 (`cameraOrbit`), moves it toward a target view by `blend`, and builds its view matrix
 (`cameraView`). `cameraDraw` sets the perspective and the view for the draws, and `cameraEnd` clears
-`stageCamera` at its removal. A second task, in list 1, clears the scenery polygons at each frame
+`sceneCamera` at its removal. A second task, in list 1, clears the scenery polygons at each frame
 (`sceneryClear`), and with the camera's mode 1 gives the draws of list 1 a flat view, turned for a
 vertical screen (`cameraFlat`).
 
@@ -499,7 +499,7 @@ On a vertical screen (`screenHorizontal` 0) the game turns positions by 90 degre
 matrix transforms, both turned this way.
 
 `sphereInView(sphere)` tests whether a sphere (x, y, z, radius) reaches the plane at the depth of
-`stageCamera`, with x within 27.5 and y within 37.5, each widened by the radius.
+`sceneCamera`, with x within 27.5 and y within 37.5, each widened by the radius.
 `polygonContains(polygon, origin, point)` tests a point against a polygon of the scenery
 (`Polygon`). Objects of the stages add their polygons to `sceneryPolygons` with `sceneryAdd`, which
 has room for 128 and does not check it (`sceneryCount`). `sceneryHit` tests a point against each.
@@ -578,7 +578,7 @@ ships' plane, in the units of their positions: the ships stay within ±25 by ±3
 | `stageLocks` | 0x8C1D1410 | 20 bytes that the stage program raises and waits on |
 | `stagePhase`, `stagePart` | 0x8C1D1400, 0x8C1D13FF | Counters that the stage program raises |
 | `pathPosition`, `pathAngles`, `pathValue` | 0x8C1D1538, 0x8C1D1528, 0x8C1D1534 | The camera on its path at `scrollPosition` |
-| `stageCamera` | 0x8C1D1550 | The camera's structure |
+| `sceneCamera` | 0x8C1D1550 | The camera's structure |
 | `gamePractice` | 0x8C15C55C | 1 in the practice mode, which returns to the title after the chapter |
 | `playersInGame` | 0x8C15C588 | 0x01: player 1 is in the game, 0x02: player 2 |
 | `gamePrototype` | 0x8C15C558 | 1 in the prototype mode |

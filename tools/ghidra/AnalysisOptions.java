@@ -1,7 +1,7 @@
 // Pre-analysis: analyzers that mislead on this binary are turned off.
 //
-// "Non-Returning Functions - Discovered" marked FUN_8c07f6ac as a function that never returns,
-// though it ends in rts. Its 16 callers then lost the code after the call: FUN_8c07fc0c returned
+// "Non-Returning Functions - Discovered" marked enemyInit as a function that never returns,
+// though it ends in rts. Its 16 callers then lost the code after the call: enemyModel3Create returned
 // before it set an object's update callbacks, and the game called through garbage.
 //
 // Usage (headless): -preScript AnalysisOptions.java

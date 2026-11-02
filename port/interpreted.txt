@@ -26,13 +26,13 @@ njSetPunchThroughThreshold
 FUN_8c010812
 njSetColorClamp
 njSetYCoefficientEx
-njEORCallback
+njHSyncCallback
 FUN_8c01095c
-FUN_8c010982
+njPalExtCallbackFunc
 FUN_8c0109c2
 njInitGlobal2
 njSetHSyncLine
-FUN_8c01124c
+njStopDisplay
 njStartCheck
 FUN_8c0112c8
 njContinue

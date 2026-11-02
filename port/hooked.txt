@@ -4,9 +4,9 @@
 
 # The polarity switch's turn: SWITCH AT ONCE.
 playerMove
-# The music's sequences, and their volume (the SDK's sdMidiSetVol): NO MUSIC.
+# The music's sequences, and their volume: NO MUSIC.
 soundServer
-FUN_8c053208
+sdMidiSetVol
 # The bullets that an enemy fires when it is destroyed: NO DEATH BULLETS.
 enemyDeathBullets
 # A line of Shift-JIS text as a texture, and the copy of a glyph into it: ENGLISH TEXT and the

@@ -492,7 +492,7 @@ public class ExportDecompiled extends GhidraScript {
     // The operand's tokens carry the ops that make its value; the casts inside it own theirs.
     // A cast to a value is not a cast to a pointer: the operand's pointer can feed another
     // expression's pointer cast, as param_1 + 0x10 feeds *(ushort *)(param_1 + 0x10) and
-    // (uint)param_1[0x10] in FUN_8c0ae1a8.
+    // (uint)param_1[0x10] in ch4StreamUpdate.
     private static boolean isPointerCast(PcodeOp op) {
         return op.getOpcode() == PcodeOp.CAST && op.getOutput() != null && op.getOutput().getHigh() != null
             && op.getOutput().getHigh().getDataType() instanceof Pointer;
@@ -530,7 +530,7 @@ public class ExportDecompiled extends GhidraScript {
         }
         frontier.addAll(mine);
         // The C can also print a longer expression twice, as the test and the assignment of
-        // pfVar2 = (float *)param_1[0x29] in FUN_8c07db84: a cast elsewhere already owns the op.
+        // pfVar2 = (float *)param_1[0x29] in linkBulletDraw: a cast elsewhere already owns the op.
         PcodeOp printedTwice = null;
         for (int depth = 0; depth < 3 && !frontier.isEmpty(); depth++) {
             List<PcodeOp> next = new ArrayList<>();
@@ -667,7 +667,7 @@ public class ExportDecompiled extends GhidraScript {
 
     // A cast to an integer type with no conversion behind it, of a value that float arithmetic
     // makes: the float goes into a word that Ghidra typed as an integer, as an fmov.s stores it.
-    // FUN_8c0bc01c's param_1[6] = (int)(a * b + c) truncated 15.0125 to 15.
+    // ch5BossPhase3's param_1[6] = (int)(a * b + c) truncated 15.0125 to 15.
     private static boolean isBitsOfFloat(List<ClangToken> t, int open, int close, int s, int e) {
         if (castsToFloat(t, open, close) || castsToPointer(t, open, close)) {
             return false;
@@ -679,7 +679,7 @@ public class ExportDecompiled extends GhidraScript {
             }
         }
         // The operand's value: the op whose result no other op of the operand reads. An ftrc after it
-        // is a conversion that the search for the cast's op can miss (FUN_8c093e04, FUN_8c0c5494).
+        // is a conversion that the search for the cast's op can miss (ch1Bg03Update, ch5BossRoomUpdate).
         for (PcodeOp op : ops) {
             if (FLOAT_ARITHMETIC.contains(op.getOpcode()) && !feeds(op, ops)) {
                 return !truncated(op.getOutput(), 3);

@@ -74,8 +74,8 @@ void njInitGlobal() {
 
 // Kamui's device, then Ninja's globals. Before Holly revision 10 the border turns orange and the
 // function at 0x8C0CCDC4 runs first.
-void FUN_8c01098a() {
-    diff::Check check("FUN_8c01098a", 0x8C01098Au);
+void njInitDevice() {
+    diff::Check check("njInitDevice", 0x8C01098Au);
     if ((word(0xA05F689Cu) & 0xFF) < 10) {
         njSetBorderColor(0xFFFF6600u);
         guest::call(word(0x8C0CCDC4u), CallArgs{});
@@ -130,14 +130,14 @@ void njClipZ(Float n, Float f) {
 }
 
 // The variable at 0x8C0CCD8C.
-void FUN_8c0108f8(undefined4 param_1) {
-    diff::Check check("FUN_8c0108f8", 0x8C0108F8u, param_1);
+void njSetEORCallback(undefined4 param_1) {
+    diff::Check check("njSetEORCallback", 0x8C0108F8u, param_1);
     put(0x8C0CCD8Cu, param_1);
 }
 
 // Ninja's count of vertical blanks for each frame, at 0x8C10AF94, and Kamui's.
-void FUN_8c01126a(KMINT32 param_1) {
-    diff::Check check("FUN_8c01126a", 0x8C01126Au, param_1);
+void njSetWaitVsyncCount(KMINT32 param_1) {
+    diff::Check check("njSetWaitVsyncCount", 0x8C01126Au, param_1);
     put(0x8C10AF94u, static_cast<uint32_t>(param_1));
     kmSetWaitVsyncCount(param_1);
 }
@@ -204,11 +204,11 @@ Uint32 njCalcVertexBufferSize(gptr<NJS_VERTEXBUFFER_INFO> pVBInfo) {
 // height of a PAL screen. The screen size goes to 0x8C10AF9C and 0x8C10AFA0, and as floats to
 // 0x8C10AF5C and 0x8C10AF60; bit 16, Kamui's anti-aliasing, doubles the floats but a 480-line
 // height.
-undefined4 FUN_8c0109de(KMDISPLAYMODE param_1, int param_2, undefined4 param_3) {
-    diff::Check check("FUN_8c0109de", 0x8C0109DEu, param_1, param_2, param_3);
+undefined4 njInitSystem(KMDISPLAYMODE param_1, int param_2, undefined4 param_3) {
+    diff::Check check("njInitSystem", 0x8C0109DEu, param_1, param_2, param_3);
     uint32_t mode = param_1;
     if (word(0x8C0CCDC8u)) {
-        FUN_8c01124c();
+        njStopDisplay();
         kmResetRenderer();
     }
     put(0x8C10AF94u, param_3);
@@ -351,7 +351,7 @@ void njInitVertexBufferEx(gptr<NJS_VERTEXBUFFER_INFO> pVBInfo) {
     kmyWaitVBlank();
     kmSetSystemConfiguration(PKMSYSTEMCONFIGSTRUCT(config));
     cpu::set_sr((cpu::sr & 0xFFFFFF0Fu) | ((word(sp) & 15) << 4));
-    FUN_8c01126a(static_cast<KMINT32>(word(0x8C10AF94u)));
+    njSetWaitVsyncCount(static_cast<KMINT32>(word(0x8C10AF94u)));
     put(0x8C10B3ACu, njCalcTexture(0));
     njSetCurrentContext(0);
 }

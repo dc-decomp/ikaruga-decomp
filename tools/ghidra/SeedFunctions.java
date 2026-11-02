@@ -12,7 +12,7 @@
 // A seed inside a function whose code before it belongs to another function was taken in through a
 // tail jump. Ghidra 12.2 resolves `mov.l @(disp,pc),rN; jmp @rN` during analysis, before any seed is
 // a function, and then follows such a jump (and the `bra` to a shared tail) into the target:
-// FUN_8c06ce2c took in syMemSet2, FUN_8c090e70 the tail FUN_8c091180. Here the unconditional jumps
+// vmuImageClear took in syMemSet2, FUN_8c090e70 the tail ch1BossMotion. Here the unconditional jumps
 // to the seed become call-returns, as they were in 12.1.4, and the seed becomes a function.
 // Usage (headless): -postScript SeedFunctions.java <seeds.txt>
 //@category Dreamcast

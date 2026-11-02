@@ -52,15 +52,15 @@ undefined4 FUN_8c035be6(void *head, void *vertex1, void *vertex2, void *vertex3)
 undefined4 FUN_8c035ca0(void *head, void *vertex1, void *vertex2, void *vertex3);
 undefined4 FUN_8c035ddc(void *head, void *vertex1, void *vertex2, void *vertex3);
 
-# FUN_8c07e144 creates an object from four words, two floats and two more words that its callers
+# linkBulletCreate creates an object from four words, two floats and two more words that its callers
 # pass on the stack: an angle and a word it keeps. With no parameters there, the C++ read 0 for
 # the angle, and stage 3 and 4 objects started at angle 0.
-float *FUN_8c07e144(unsigned int param_1, unsigned int param_2, unsigned char param_3, float *param_4, float param_5, float param_6, int angle, unsigned int param_8);
+float *linkBulletCreate(unsigned int param_1, unsigned int param_2, unsigned char param_3, float *param_4, float param_5, float param_6, int angle, unsigned int param_8);
 
-# FUN_8c07e794 turns a line from a player toward a target and returns the line's new length. Its
-# caller FUN_8c07e8cc passes the length in fr4, from the object's word at 0x1c, where the
+# laserLengthToShip turns a line from a player toward a target and returns the line's new length. Its
+# caller enemyLaserDraw passes the length in fr4, from the object's word at 0x1c, where the
 # decompiler found no parameter, so the C++ started each turn from length 0.
-float FUN_8c07e794(unsigned int player, int angle, float *target, float length);
+float laserLengthToShip(unsigned int player, int angle, float *target, float length);
 
 # Ninja's linear interpolation of three floats, which the motion state calls through a pointer with
 # the frame in fr4. It passes fr4 on to _njGetMotionLinearKeys without reading it, so the

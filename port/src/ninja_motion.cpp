@@ -483,21 +483,21 @@ void njSetShapeVlist(gptr<Uint32> vlist, Uint32 vtype) {
 }
 
 // njDrawMotionLink with the draw functions of the chunk models: multi-light Easy models,
-// FUN_8c01a23a's models, multi-light Simple models and Simple models.
-void FUN_8c016118(Float param_1, gptr<NJS_CNK_OBJECT> param_2, gptr<NJS_MOTION_LINK> param_3) {
-    diff::Check check("FUN_8c016118", 0x8C016118u, param_1, param_2, param_3);
+// njCnkEasyDrawModel's models, multi-light Simple models and Simple models.
+void njCnkEasyMultiDrawMotionLink(Float param_1, gptr<NJS_CNK_OBJECT> param_2, gptr<NJS_MOTION_LINK> param_3) {
+    diff::Check check("njCnkEasyMultiDrawMotionLink", 0x8C016118u, param_1, param_2, param_3);
     njDrawMotionLink(param_2, param_3, param_1, gptr<code>(0x8C01C596u));
 }
-void FUN_8c016128(Float param_1, gptr<NJS_CNK_OBJECT> param_2, gptr<NJS_MOTION_LINK> param_3) {
-    diff::Check check("FUN_8c016128", 0x8C016128u, param_1, param_2, param_3);
+void njCnkEasyDrawMotionLink(Float param_1, gptr<NJS_CNK_OBJECT> param_2, gptr<NJS_MOTION_LINK> param_3) {
+    diff::Check check("njCnkEasyDrawMotionLink", 0x8C016128u, param_1, param_2, param_3);
     njDrawMotionLink(param_2, param_3, param_1, gptr<code>(0x8C01A23Au));
 }
-void FUN_8c016138(Float param_1, gptr<NJS_CNK_OBJECT> param_2, gptr<NJS_MOTION_LINK> param_3) {
-    diff::Check check("FUN_8c016138", 0x8C016138u, param_1, param_2, param_3);
+void njCnkSimpleMultiDrawMotionLink(Float param_1, gptr<NJS_CNK_OBJECT> param_2, gptr<NJS_MOTION_LINK> param_3) {
+    diff::Check check("njCnkSimpleMultiDrawMotionLink", 0x8C016138u, param_1, param_2, param_3);
     njDrawMotionLink(param_2, param_3, param_1, gptr<code>(0x8C029772u));
 }
-void FUN_8c016148(Float param_1, gptr<NJS_CNK_OBJECT> param_2, gptr<NJS_MOTION_LINK> param_3) {
-    diff::Check check("FUN_8c016148", 0x8C016148u, param_1, param_2, param_3);
+void njCnkSimpleDrawMotionLink(Float param_1, gptr<NJS_CNK_OBJECT> param_2, gptr<NJS_MOTION_LINK> param_3) {
+    diff::Check check("njCnkSimpleDrawMotionLink", 0x8C016148u, param_1, param_2, param_3);
     njDrawMotionLink(param_2, param_3, param_1, gptr<code>(0x8C01CF3Eu));
 }
 
@@ -519,9 +519,9 @@ undefined4 FUN_8c0173dc() {
 // `arg_fr4`. The motion's flags (32 in its state) tell its channels; the ones a camera does not use
 // are skipped. A part without keys takes the camera's own, but a roll without a channel stays as it
 // was. With flag 64, the vector is the motion's point less the position.
-void FUN_8c016170(gptr<float> param_1, gptr<NJS_MOTION> param_2, gptr<int> param_3, float arg_fr4, float arg_fr5,
+void njGetCameraMotion(gptr<float> param_1, gptr<NJS_MOTION> param_2, gptr<int> param_3, float arg_fr4, float arg_fr5,
                   undefined4 arg_r7, float arg_fr6, float arg_fr7) {
-    diff::Check check("FUN_8c016170", 0x8C016170u, param_1, param_2, param_3, arg_fr4, arg_fr5, arg_r7, arg_fr6,
+    diff::Check check("njGetCameraMotion", 0x8C016170u, param_1, param_2, param_3, arg_fr4, arg_fr5, arg_r7, arg_fr6,
                       arg_fr7);
     const uint32_t camera = param_1.a, out = param_3.a;
     const uint32_t pos = word(out), vec = word(out + 4), roll = word(out + 8), ang = word(out + 12);
@@ -558,19 +558,19 @@ void FUN_8c016170(gptr<float> param_1, gptr<NJS_MOTION> param_2, gptr<int> param
         guest::store<uint16_t>(ang, guest::load<uint16_t>(camera + 26));
 }
 
-// A camera motion as the view: FUN_8c016170 into a camera on the stack with the type of `param_1`,
+// A camera motion as the view: njGetCameraMotion into a camera on the stack with the type of `param_1`,
 // then njSetCamera. The machine code keeps that camera in its frame, 52 bytes below the stack
 // pointer, and so does this: a roll that the motion leaves out is what the frame held.
-void FUN_8c0162a8(gptr<float> param_1, gptr<NJS_MOTION> param_2, float arg_fr4, float arg_fr5, undefined4 arg_r6,
+void njCameraMotion(gptr<float> param_1, gptr<NJS_MOTION> param_2, float arg_fr4, float arg_fr5, undefined4 arg_r6,
                   undefined4 arg_r7, float arg_fr6, float arg_fr7) {
-    diff::Check check("FUN_8c0162a8", 0x8C0162A8u, param_1, param_2, arg_fr4, arg_fr5, arg_r6, arg_r7, arg_fr6,
+    diff::Check check("njCameraMotion", 0x8C0162A8u, param_1, param_2, arg_fr4, arg_fr5, arg_r6, arg_r7, arg_fr6,
                       arg_fr7);
     guest::Frame frame(52);
     const uint32_t places = frame.top - 52, camera = places + 16;
     const uint32_t at[4] = {camera, camera + 12, camera + 24, camera + 26};
     for (uint32_t i = 0; i < 4; ++i) guest::store<uint32_t>(places + 4 * i, at[i]);
     guest::store<uint32_t>(camera + 28, word(param_1.a + 28));
-    FUN_8c016170(param_1, param_2, gptr<int>(places), arg_fr4, 0, 0, 0, 0);
+    njGetCameraMotion(param_1, param_2, gptr<int>(places), arg_fr4, 0, 0, 0, 0);
     njSetCamera(gptr<NJS_CAMERA>(camera));
 }
 

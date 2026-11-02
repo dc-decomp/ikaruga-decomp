@@ -490,7 +490,7 @@ void effectSpriteDraw(EffectSprite *effect);
 void effectSpriteDrawDepth(EffectSprite *effect);
 void effectSpriteDrawPlain(EffectSprite *effect);
 
-/* The camera, 0xA8 bytes: the data of the camera's task, which stageCamera points at. */
+/* The camera, 0xA8 bytes: the data of the camera's task, which sceneCamera points at. */
 typedef struct Camera {
     unsigned char mode;          /* 1: the draws of list 1 get a flat view (cameraFlat) */
     unsigned char unknown_1[3];

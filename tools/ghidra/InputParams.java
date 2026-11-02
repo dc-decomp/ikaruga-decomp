@@ -3,8 +3,8 @@
 // Katana code moves two floats at once with fmov.d, so a function that takes x and y in fr4 and
 // fr5 can read them as dr4. The calling convention has no pairs, so the decompiler shows that read
 // as an unknown input, in_dr4, and every caller drops the two arguments: the game's screen
-// position helper FUN_8c06b02c lost its x and y. Dispatchers do the same with single registers:
-// FUN_8c068da0 passes r7 and fr4 to fr7 on to a draw function from a table, and showed them as
+// position helper screenPlace lost its x and y. Dispatchers do the same with single registers:
+// modelDrawMotion passes r7 and fr4 to fr7 on to a draw function from a table, and showed them as
 // in_r7 and in_fr4, so every sprite it drew lost its position.
 //
 // A function with an unknown input in r5 to r7, fr4 to fr11, or a pair dr4 to dr10 gets parameters
@@ -14,7 +14,7 @@
 // from the SDK headers and from prototypes.txt are left alone.
 //
 // It runs twice, around TypeFunctionPointers: a call through a literal-pool slot passes the
-// arguments of the slot's type, which that pass sets. Before it, FUN_8c082918 passed no floats on
+// arguments of the slot's type, which that pass sets. Before it, chargeParticlePlayer passed no floats on
 // to the function in its slot, so its own fr4 to fr6 showed as no input at all.
 //
 // Usage (headless): -postScript InputParams.java

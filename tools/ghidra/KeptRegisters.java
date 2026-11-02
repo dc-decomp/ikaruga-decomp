@@ -1,14 +1,14 @@
 // Post-analysis: a function that leaves r1, r2 or r3 alone keeps them for its callers.
 //
 // SHC knows which registers a function in the same unit writes, and a caller keeps a value in r1 to
-// r3 across a call to a function that leaves it alone. FUN_8c09b634 keeps the object it created in
-// r3 while FUN_8c09b60c fills it in, then returns r3. The calling convention kills r0 to r3 at every
+// r3 across a call to a function that leaves it alone. ch2SmallBlock keeps the object it created in
+// r3 while ch2SmallBlockSinkInit fills it in, then returns r3. The calling convention kills r0 to r3 at every
 // call, so the decompiler read the result as extraout_r3, a value the C++ does not have. This finds
 // each register of r1 to r3 that a caller reads after a call, checks that the callee and everything
 // it calls never write it, or push it on the stack and pop it again as the SHC runtime's __divls
 // does with r2 and r3, and gives the callee the calling convention __keep_r1 ... __keep_r1r2r3
 // (tools/ghidra/build_language.py) for the registers it keeps. It runs after the last
-// MarkConstantPools: before that, the literal pool after FUN_8c09b60c decoded as a bsr, and an
+// MarkConstantPools: before that, the literal pool after ch2SmallBlockSinkInit decoded as a bsr, and an
 // unknown callee may write every register.
 //
 // Usage (headless): -postScript KeptRegisters.java

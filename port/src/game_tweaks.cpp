@@ -77,7 +77,7 @@ void hide_press_start(bool on) {
 }
 
 // The ship's plane: players (Player *[2]), Player.state at 3, flags and forced at 1 and 0 (0x10 lets
-// a ship leave the bounds), position at 0x60; the camera (stageCamera, Camera in game/types.h) with
+// a ship leave the bounds), position at 0x60; the camera (sceneCamera, Camera in game/types.h) with
 // its mode at 0, its depth at 8 and its view matrix at 0x30; the camera path that the ships draw in;
 // Ninja's projection's scales and centre; the ship's bounds (playerMove's constants); the screen's
 // orientation.
@@ -336,9 +336,9 @@ std::unordered_map<uint32_t, char> asked_volume;  // by sequence handle, what th
 bool music_muted = false;
 }  // namespace
 
-dword FUN_8c053208(gptr<undefined1> handle, char volume, int fade) {
+dword sdMidiSetVol(gptr<undefined1> handle, char volume, int fade) {
     asked_volume[handle.a] = volume;
-    return FUN_8c053208_game(handle, tweaks::on.no_music ? static_cast<char>(-0x7f) : volume, fade);
+    return sdMidiSetVol_game(handle, tweaks::on.no_music ? static_cast<char>(-0x7f) : volume, fade);
 }
 
 // A change of the tweak reaches the sequences that play: soundSequencePlayers holds a handle for
@@ -352,7 +352,7 @@ void soundServer() {
                 continue;
             const auto it = asked_volume.find(handle.a);
             const char volume = it != asked_volume.end() ? it->second : static_cast<char>(soundSequenceSlots[i].level);
-            FUN_8c053208_game(handle, music_muted ? static_cast<char>(-0x7f) : volume, 0);
+            sdMidiSetVol_game(handle, music_muted ? static_cast<char>(-0x7f) : volume, 0);
         }
     }
     soundServer_game();

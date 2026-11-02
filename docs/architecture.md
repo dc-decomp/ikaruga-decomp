@@ -341,9 +341,9 @@ what Ghidra prints.
   orientation and the vibration unit (none). The setup is fixed: a controller in port A and a
   memory card with a screen in its first slot. The Maple device layer never starts, and the port's
   model of the Maple bus is gone. The game never reads a record's name or device information.
-- **The memory card is native** (`port/src/saves.cpp`, `--saves DIR`). The seven `bu` functions
-  that the game calls, and the two unnamed ones that tell whether a file exists and count the free
-  blocks, read and write files in a directory. A file holds the image that
+- **The memory card is native** (`port/src/saves.cpp`, `--saves DIR`). The nine `bu` functions
+  that the game calls, `buIsExistFile` and `buGetDiskFree` among them, read and write files in a
+  directory. A file holds the image that
   `buMakeBackupFileImage` built, so it is a VMS file. A request is complete when it returns. The
   library's file system no longer runs. On the emulated card, the save after the ending failed and
   the game stopped drawing.

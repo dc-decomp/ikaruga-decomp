@@ -1,0 +1,10 @@
+# Addresses that the analysis makes functions but that are none. DropDataFunctions.java removes
+# their functions after the symbols are applied and again after FixupFlow, which re-creates call
+# targets. One address per line, with the reason.
+
+# The end of step 18 and all of step 19 of ch1BossUpdate (jump table at 0x8C08FEA4). Discovery
+# finds a pointer to it, but nothing calls it, and as a function it reads registers that only
+# ch1BossUpdate sets.
+0x8C090D14
+# The literal pool of the chapter 2 block update at 0x8C09B750: the floats 5.0, 2.5 and 0.625.
+0x8C09B7F0

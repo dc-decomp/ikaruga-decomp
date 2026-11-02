@@ -55,6 +55,9 @@ works (`0x0c013958` or `0x8c013958`).
    call, so a name needs no new analysis. It refuses a name that is no C++ identifier, that names
    two functions or that the code uses already: a local, a parameter, a field or a global. It also
    refuses to rename a function that `port/` names: rename it there in the same change.
+   `tools/ghidra/prototypes.txt` also finds its functions by name, and the next analysis applies the
+   names first: rename them there too, or ApplyPrototypes reports the names as not found and the
+   functions lose their prototypes.
 3. Build, and compare a game of the port before and after the change, with `IKARUGA_STREAMS`
    (below). A name alone leaves the code as it was, so the streams stay the same.
 

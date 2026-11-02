@@ -105,7 +105,7 @@ with open(sys.argv[2], "w") as o:
   -postScript ApplySwitchTables.java "$out/switch-tables.txt" \
   -postScript SeedFromPointers.java \
   -postScript ApplySymbols.java "$root/game/symbols.tsv" "labels:$root/game/globals.tsv" \
-  -postScript DropDataFunctions.java 0x8C0CA2F4 \
+  -postScript DropDataFunctions.java 0x8C0CA2F4 "$root/tools/ghidra/not_functions.txt" \
   -postScript ApplySdkHeaders.java "$sdk_header" \
   -postScript ApplyGameTypes.java "$root/game/types.h" "$root/game/globals.tsv" \
   -postScript ApplyPrototypes.java "$root/tools/ghidra/prototypes.txt" \
@@ -113,6 +113,7 @@ with open(sys.argv[2], "w") as o:
   -postScript StackStructParams.java \
   -postScript MarkConstantPools.java \
   -postScript FixupFlow.java \
+  -postScript DropDataFunctions.java - "$root/tools/ghidra/not_functions.txt" \
   -postScript CommitPrototypes.java \
   -postScript FixReturns.java \
   -postScript NormalizeStorage.java \

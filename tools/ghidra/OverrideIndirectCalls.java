@@ -11,7 +11,7 @@
 // A call of a variadic function gets the four word registers and the stack words that its format
 // takes, or eight where the format is not a constant. SHC passes sprintf's format and values on
 // the stack, and with sprintf's own prototype the decompiler took those words as arguments at
-// some calls only: FUN_8c07235c printed its countdown with sprintf(buffer, r5) and no format, so
+// some calls only: nameEntryDraw printed its countdown with sprintf(buffer, r5) and no format, so
 // the text was garbage.
 // Usage (headless): -postScript OverrideIndirectCalls.java [indirect|variadic]
 //@category Dreamcast
@@ -101,7 +101,7 @@ public class OverrideIndirectCalls extends GhidraScript {
     }
 
     // A call whose format is a constant string gets the stack words that the format takes. Eight
-    // words at every call cover the caller's own locals above the arguments: FUN_8c071418 writes
+    // words at every call cover the caller's own locals above the arguments: continueScreen writes
     // the CONTINUE text's position there after its sprintf, and the decompiler dropped the writes.
     private int fitFormats(java.util.Map<Function, java.util.List<Instruction>> calls) throws Exception {
         ghidra.app.decompiler.DecompInterface di = new ghidra.app.decompiler.DecompInterface();

@@ -161,7 +161,7 @@ Sint32 buSaveFile(Sint32 drive, gptr<char> fname, gptr<void> buf, Uint32 nblock,
 }
 
 // Whether the file is on the card: 0, or an error.
-undefined4 FUN_8c05837c(int drive, gptr<char> fname, undefined4, undefined4, float, float, float, float) {
+undefined4 buIsExistFile(int drive, gptr<char> fname, undefined4, undefined4, float, float, float, float) {
     std::error_code ec;
     const Sint32 r = drive != 0 ? kNoDisk : fs::exists(path_of(fname), ec) ? kOk : kFileNotFound;
     log("look for", fname, r);
@@ -169,7 +169,7 @@ undefined4 FUN_8c05837c(int drive, gptr<char> fname, undefined4, undefined4, flo
 }
 
 // The card's free blocks.
-int FUN_8c057e40(int drive, int, undefined4, undefined4, float, float, float, float) {
+int buGetDiskFree(int drive, int, undefined4, undefined4, float, float, float, float) {
     if (drive != 0)
         return kNoDisk;
     const std::uintmax_t used = used_blocks(fs::path());

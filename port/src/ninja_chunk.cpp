@@ -582,9 +582,9 @@ void njSetkmColorMode(uint param_1) {
 // that the vertex list found not more than 1 in front of the camera, and `param_4` the vertex
 // buffer. When all vertices are that near, no strip is drawn; when some are, the strips go
 // through the clipping functions.
-void FUN_8c019cd0(gptr<ushort> param_1, int param_2, int param_3, int param_4, float, float, float, float, float,
+void njCnkEasyPlist(gptr<ushort> param_1, int param_2, int param_3, int param_4, float, float, float, float, float,
                   float, float, float) {
-    diff::Check check("FUN_8c019cd0", 0x8C019CD0u, param_1, param_2, param_3, param_4);
+    diff::Check check("njCnkEasyPlist", 0x8C019CD0u, param_1, param_2, param_3, param_4);
     // The cached polygon lists and their count, the bump vectors and whether a bump chunk set
     // them, the material's colour and the light's.
     constexpr uint32_t kCache = 0x8C12290Cu, kCached = 0x8C122908u, kBump = 0x8C10B434u, kBumped = 0x8C10B558u;
@@ -611,7 +611,7 @@ void FUN_8c019cd0(gptr<ushort> param_1, int param_2, int param_3, int param_4, f
                 return;
             }
             else if (type == 5) {
-                FUN_8c019cd0(gptr<ushort>(word(slot)), param_2, param_3, param_4, 0, 0, 0, 0, 0, 0, 0, 0);
+                njCnkEasyPlist(gptr<ushort>(word(slot)), param_2, param_3, param_4, 0, 0, 0, 0, 0, 0, 0, 0);
                 guest::store<uint32_t>(kCached, word(kCached) - 1);
             }
             continue;
@@ -932,9 +932,9 @@ uint njCnkEasyVlist(gptr<short> param_1, int param_2, undefined4 ctx_r8, undefin
 // An Easy model: when culling is on (bit 8 of Ninja's flags) and the model has a radius, a model
 // outside the view returns -1. Otherwise its vertex list fills the vertex buffer at 0x8C10AFA4 and
 // its polygon list draws from it.
-undefined4 FUN_8c01a23a(gptr<undefined4> param_1, uint param_2, float, float, float, float, float, float, float,
+undefined4 njCnkEasyDrawModel(gptr<undefined4> param_1, uint param_2, float, float, float, float, float, float, float,
                         float, undefined4 ctx_r8, undefined4 ctx_r9, undefined4 ctx_r11) {
-    diff::Check check("FUN_8c01a23a", 0x8C01A23Au, param_1, param_2);
+    diff::Check check("njCnkEasyDrawModel", 0x8C01A23Au, param_1, param_2);
     const uint32_t model = param_1.a;
     if ((word(0x8C10AF98u) & 0x100) && real(model + 20) > 0.0f && njCnkModelClip(static_cast<int>(model)) != 0u)
         return check.returns(0xFFFFFFFFu);
@@ -945,7 +945,7 @@ undefined4 FUN_8c01a23a(gptr<undefined4> param_1, uint param_2, float, float, fl
     const uint32_t polygons = word(model + 4), near = word(0x8C122900u);
     if (polygons) {
         guest::store<uint32_t>(0x8C10B430u, type);
-        FUN_8c019cd0(gptr<ushort>(polygons), static_cast<int>(type), static_cast<int>(near), static_cast<int>(buffer),
+        njCnkEasyPlist(gptr<ushort>(polygons), static_cast<int>(type), static_cast<int>(near), static_cast<int>(buffer),
                      0, 0, 0, 0, 0, 0, 0, 0);
     }
     return check.returns(0);
@@ -1410,8 +1410,8 @@ void njCnkSimplePlist(gptr<ushort> param_1, int param_2, int param_3) {
 // The vertex list of a Simple model, as the Easy model's but with 32 bytes for each vertex. The
 // table at 0x8C0CD100 gives each vertex type's function, and whether the polygon list lights the
 // strips (0x8C10B57C).
-void FUN_8c01ce1a(gptr<ushort> param_1, int param_2, undefined4, undefined4) {
-    diff::Check check("FUN_8c01ce1a", 0x8C01CE1Au, param_1, param_2);
+void njCnkSimpleVlist(gptr<ushort> param_1, int param_2, undefined4, undefined4) {
+    diff::Check check("njCnkSimpleVlist", 0x8C01CE1Au, param_1, param_2);
     constexpr uint32_t kContext = 0x8C10B40Cu, kNear = 0x8C122900u, kCounted = 0x8C122904u;
     uint32_t at = param_1.a;
     for (;;) {
@@ -1450,13 +1450,13 @@ void FUN_8c01ce1a(gptr<ushort> param_1, int param_2, undefined4, undefined4) {
 // A Simple model: when culling is on (bit 8 of Ninja's flags) and the model has a radius, a model
 // outside the view returns -1. Otherwise its vertex list fills the vertex buffer at 0x8C10AFA4 and
 // its polygon list draws from it.
-undefined4 FUN_8c01cf3e(gptr<undefined4> param_1, undefined4 ctx_r8, undefined4 ctx_r9) {
-    diff::Check check("FUN_8c01cf3e", 0x8C01CF3Eu, param_1);
+undefined4 njCnkSimpleDrawModel(gptr<undefined4> param_1, undefined4 ctx_r8, undefined4 ctx_r9) {
+    diff::Check check("njCnkSimpleDrawModel", 0x8C01CF3Eu, param_1);
     const uint32_t model = param_1.a, buffer = word(0x8C10AFA4u), vertices = word(model);
     if ((word(0x8C10AF98u) & 0x100) && real(model + 20) > 0.0f && njCnkModelClip(static_cast<int>(model)) != 0u)
         return check.returns(0xFFFFFFFFu);
     if (vertices)
-        FUN_8c01ce1a(gptr<ushort>(vertices), static_cast<int>(buffer), ctx_r8, ctx_r9);
+        njCnkSimpleVlist(gptr<ushort>(vertices), static_cast<int>(buffer), ctx_r8, ctx_r9);
     if (const uint32_t polygons = word(model + 4))
         njCnkSimplePlist(gptr<ushort>(polygons), static_cast<int>(word(0x8C122900u)), static_cast<int>(buffer));
     return check.returns(0);
@@ -2294,27 +2294,27 @@ gptr<float> njCnkEasyPolygonClip(gptr<short> param_1, int param_2, uint param_3,
 
 // The lights of the multi-light models: their bits at 0x8C122710 (see njCnkEasyMultiVertexVN). The
 // light set `param_1` takes its bits from the table at 0x8C0CA6A0.
-void FUN_8c01a2c8(int param_1) {
-    diff::Check check("FUN_8c01a2c8", 0x8C01A2C8u, param_1);
+void njCnkSetEasyMultiLight(int param_1) {
+    diff::Check check("njCnkSetEasyMultiLight", 0x8C01A2C8u, param_1);
     guest::store<uint32_t>(0x8C122710u, word(0x8C0CA6A0u + 4 * static_cast<uint32_t>(param_1)));
 }
 
 // Switches light `param_1` on, or off when `param_2` is 0, with its bits from the table at 0x8C0CA6BC.
-void FUN_8c01a2ea(int param_1, int param_2) {
-    diff::Check check("FUN_8c01a2ea", 0x8C01A2EAu, param_1, param_2);
+void njCnkSetEasyMultiLightSwitch(int param_1, int param_2) {
+    diff::Check check("njCnkSetEasyMultiLightSwitch", 0x8C01A2EAu, param_1, param_2);
     const uint32_t bits = word(0x8C0CA6BCu + 4 * static_cast<uint32_t>(param_1)), lights = word(0x8C122710u);
     guest::store<uint32_t>(0x8C122710u, param_2 ? lights | bits : lights & ~bits);
 }
 
 // The same for the lights of the Simple multi-light models, whose bits are at 0x8C122830, from the
 // tables at 0x8C0CA6F8 and 0x8C0CA714.
-void FUN_8c029838(int param_1) {
-    diff::Check check("FUN_8c029838", 0x8C029838u, param_1);
+void njCnkSetSimpleMultiLight(int param_1) {
+    diff::Check check("njCnkSetSimpleMultiLight", 0x8C029838u, param_1);
     guest::store<uint32_t>(0x8C122830u, word(0x8C0CA6F8u + 4 * static_cast<uint32_t>(param_1)));
 }
 
-void FUN_8c02985a(int param_1, int param_2) {
-    diff::Check check("FUN_8c02985a", 0x8C02985Au, param_1, param_2);
+void njCnkSetSimpleMultiLightSwitch(int param_1, int param_2) {
+    diff::Check check("njCnkSetSimpleMultiLightSwitch", 0x8C02985Au, param_1, param_2);
     const uint32_t bits = word(0x8C0CA714u + 4 * static_cast<uint32_t>(param_1)), lights = word(0x8C122830u);
     guest::store<uint32_t>(0x8C122830u, param_2 ? lights | bits : lights & ~bits);
 }
@@ -2737,27 +2737,27 @@ void view_lights(uint32_t lights) {
 
 // The Easy models' light: its direction, its intensity and the ambient light (the intensity goes
 // negated), and its colour.
-void FUN_8c019ca4(float param_1, float param_2, float param_3) {
-    diff::Check check("FUN_8c019ca4", 0x8C019CA4u, param_1, param_2, param_3);
+void njCnkSetEasyLight(float param_1, float param_2, float param_3) {
+    diff::Check check("njCnkSetEasyLight", 0x8C019CA4u, param_1, param_2, param_3);
     put3(0x8C10B3E8u, param_1, param_2, param_3);
 }
-void FUN_8c019cb2(float arg_fr4, float arg_fr5) {
-    diff::Check check("FUN_8c019cb2", 0x8C019CB2u, arg_fr4, arg_fr5);
+void njCnkSetEasyLightIntensity(float arg_fr4, float arg_fr5) {
+    diff::Check check("njCnkSetEasyLightIntensity", 0x8C019CB2u, arg_fr4, arg_fr5);
     guest::store<float>(0x8C10B3F4u, -arg_fr4);
     guest::store<float>(0x8C10B3F8u, arg_fr5);
 }
-void FUN_8c019cc0(float param_1, float param_2, float param_3) {
-    diff::Check check("FUN_8c019cc0", 0x8C019CC0u, param_1, param_2, param_3);
+void njCnkSetEasyLightColor(float param_1, float param_2, float param_3) {
+    diff::Check check("njCnkSetEasyLightColor", 0x8C019CC0u, param_1, param_2, param_3);
     put3(0x8C0CF524u, param_1, param_2, param_3);
 }
 
 // The Simple models' light, as the Easy models'.
-void FUN_8c01c65c(float param_1, float param_2, float param_3) {
-    diff::Check check("FUN_8c01c65c", 0x8C01C65Cu, param_1, param_2, param_3);
+void njCnkSetSimpleLight(float param_1, float param_2, float param_3) {
+    diff::Check check("njCnkSetSimpleLight", 0x8C01C65Cu, param_1, param_2, param_3);
     put3(0x8C10B40Cu, param_1, param_2, param_3);
 }
-void FUN_8c01c66a(float arg_fr4, float arg_fr5) {
-    diff::Check check("FUN_8c01c66a", 0x8C01C66Au, arg_fr4, arg_fr5);
+void njCnkSetSimpleLightIntensity(float arg_fr4, float arg_fr5) {
+    diff::Check check("njCnkSetSimpleLightIntensity", 0x8C01C66Au, arg_fr4, arg_fr5);
     guest::store<float>(0x8C10B418u, -arg_fr4);
     guest::store<float>(0x8C10B41Cu, arg_fr5);
 }
@@ -2768,65 +2768,65 @@ void njCnkSetSimpleLightColor(Float r, Float g, Float b) {
 
 // The multi-light Easy models' lights: the colour that scales the material's, a light's colour,
 // a directional light, a point light, a point light's range, and the lights in the view.
-void FUN_8c01a322(float param_1, float param_2, float param_3) {
-    diff::Check check("FUN_8c01a322", 0x8C01A322u, param_1, param_2, param_3);
+void njCnkSetEasyMultiAmbient(float param_1, float param_2, float param_3) {
+    diff::Check check("njCnkSetEasyMultiAmbient", 0x8C01A322u, param_1, param_2, param_3);
     put3(kEasyLights + 84, param_1, param_2, param_3);
 }
-void FUN_8c01a330(int param_1, float param_2, float param_3, float param_4) {
-    diff::Check check("FUN_8c01a330", 0x8C01A330u, param_1, param_2, param_3, param_4);
+void njCnkSetEasyMultiLightColor(int param_1, float param_2, float param_3, float param_4) {
+    diff::Check check("njCnkSetEasyMultiLightColor", 0x8C01A330u, param_1, param_2, param_3, param_4);
     put3(kEasyLights + 116 + 32 * static_cast<uint32_t>(param_1 - 1), param_2, param_3, param_4);
 }
-void FUN_8c01a348(int param_1, float param_2, float param_3, float param_4) {
-    diff::Check check("FUN_8c01a348", 0x8C01A348u, param_1, param_2, param_3, param_4);
+void njCnkSetEasyMultiLightVectorEx(int param_1, float param_2, float param_3, float param_4) {
+    diff::Check check("njCnkSetEasyMultiLightVectorEx", 0x8C01A348u, param_1, param_2, param_3, param_4);
     set_light(kEasyLights, param_1, param_2, param_3, param_4, false);
 }
-void FUN_8c01a380(int param_1, float param_2, float param_3, float param_4) {
-    diff::Check check("FUN_8c01a380", 0x8C01A380u, param_1, param_2, param_3, param_4);
+void njCnkSetEasyMultiLightPoint(int param_1, float param_2, float param_3, float param_4) {
+    diff::Check check("njCnkSetEasyMultiLightPoint", 0x8C01A380u, param_1, param_2, param_3, param_4);
     set_light(kEasyLights, param_1, param_2, param_3, param_4, true);
 }
-void FUN_8c01a3b2(int param_1, float arg_fr4, float arg_fr5) {
-    diff::Check check("FUN_8c01a3b2", 0x8C01A3B2u, param_1, arg_fr4, arg_fr5);
+void njCnkSetEasyMultiLightRange(int param_1, float arg_fr4, float arg_fr5) {
+    diff::Check check("njCnkSetEasyMultiLightRange", 0x8C01A3B2u, param_1, arg_fr4, arg_fr5);
     set_light_range(kEasyLights, param_1, arg_fr4, arg_fr5);
 }
-void FUN_8c01a3ca() {
-    diff::Check check("FUN_8c01a3ca", 0x8C01A3CAu);
+void njCnkSetEasyMultiLightMatrices() {
+    diff::Check check("njCnkSetEasyMultiLightMatrices", 0x8C01A3CAu);
     view_lights(kEasyLights);
 }
 
 // The multi-light Simple models' lights, as the Easy models'.
-void FUN_8c029892(float param_1, float param_2, float param_3) {
-    diff::Check check("FUN_8c029892", 0x8C029892u, param_1, param_2, param_3);
+void njCnkSetSimpleMultiAmbient(float param_1, float param_2, float param_3) {
+    diff::Check check("njCnkSetSimpleMultiAmbient", 0x8C029892u, param_1, param_2, param_3);
     put3(kSimpleLights + 84, param_1, param_2, param_3);
 }
-void FUN_8c0298a0(int param_1, float param_2, float param_3, float param_4) {
-    diff::Check check("FUN_8c0298a0", 0x8C0298A0u, param_1, param_2, param_3, param_4);
+void njCnkSetSimpleMultiLightColor(int param_1, float param_2, float param_3, float param_4) {
+    diff::Check check("njCnkSetSimpleMultiLightColor", 0x8C0298A0u, param_1, param_2, param_3, param_4);
     put3(kSimpleLights + 116 + 32 * static_cast<uint32_t>(param_1 - 1), param_2, param_3, param_4);
 }
-void FUN_8c0298b8(int param_1, float param_2, float param_3, float param_4) {
-    diff::Check check("FUN_8c0298b8", 0x8C0298B8u, param_1, param_2, param_3, param_4);
+void njCnkSetSimpleMultiLightVectorEx(int param_1, float param_2, float param_3, float param_4) {
+    diff::Check check("njCnkSetSimpleMultiLightVectorEx", 0x8C0298B8u, param_1, param_2, param_3, param_4);
     set_light(kSimpleLights, param_1, param_2, param_3, param_4, false);
 }
-void FUN_8c0298f0(int param_1, float param_2, float param_3, float param_4) {
-    diff::Check check("FUN_8c0298f0", 0x8C0298F0u, param_1, param_2, param_3, param_4);
+void njCnkSetSimpleMultiLightPoint(int param_1, float param_2, float param_3, float param_4) {
+    diff::Check check("njCnkSetSimpleMultiLightPoint", 0x8C0298F0u, param_1, param_2, param_3, param_4);
     set_light(kSimpleLights, param_1, param_2, param_3, param_4, true);
 }
-void FUN_8c029922(int param_1, float arg_fr4, float arg_fr5) {
-    diff::Check check("FUN_8c029922", 0x8C029922u, param_1, arg_fr4, arg_fr5);
+void njCnkSetSimpleMultiLightRange(int param_1, float arg_fr4, float arg_fr5) {
+    diff::Check check("njCnkSetSimpleMultiLightRange", 0x8C029922u, param_1, arg_fr4, arg_fr5);
     set_light_range(kSimpleLights, param_1, arg_fr4, arg_fr5);
 }
-void FUN_8c02993a() {
-    diff::Check check("FUN_8c02993a", 0x8C02993Au);
+void njCnkSetSimpleMultiLightMatrices() {
+    diff::Check check("njCnkSetSimpleMultiLightMatrices", 0x8C02993Au);
     view_lights(kSimpleLights);
 }
 
-// njCnkTransformObject with the draw functions of the chunk models: FUN_8c01a23a's models, Simple
-// models (FUN_8c01cf3e), multi-light Easy models and multi-light Simple models.
+// njCnkTransformObject with the draw functions of the chunk models: njCnkEasyDrawModel's models, Simple
+// models (njCnkSimpleDrawModel), multi-light Easy models and multi-light Simple models.
 void njCnkEasyDrawObject(gptr<NJS_CNK_OBJECT> object) {
     diff::Check check("njCnkEasyDrawObject", 0x8C01A296u, object);
     njCnkTransformObject(gptr<uint>(object.a), gptr<undefined>(0x8C01A23Au));
 }
-void FUN_8c01cf94(gptr<uint> param_1) {
-    diff::Check check("FUN_8c01cf94", 0x8C01CF94u, param_1);
+void njCnkSimpleDrawObject(gptr<uint> param_1) {
+    diff::Check check("njCnkSimpleDrawObject", 0x8C01CF94u, param_1);
     njCnkTransformObject(param_1, gptr<undefined>(0x8C01CF3Eu));
 }
 void njCnkEasyMultiDrawObject(gptr<NJS_CNK_OBJECT> model) {

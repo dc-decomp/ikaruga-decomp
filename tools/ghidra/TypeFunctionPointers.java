@@ -123,7 +123,7 @@ public class TypeFunctionPointers extends GhidraScript {
                 }
             }
             // Untype them all, then type them again one at a time: only the words that break the
-            // decompile stay untyped (njStartVertex's slot kills the decompiler on FUN_8c019cd0,
+            // decompile stay untyped (njStartVertex's slot kills the decompiler on njCnkEasyPlist,
             // the njEndVertex slot next to it is needed).
             Map<Address, DataType> types = new HashMap<>();
             for (Address w : words) {

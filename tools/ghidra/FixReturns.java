@@ -2,7 +2,7 @@
 //
 // SHC leaves a result in r0 (fr0 for a float) without anything in the function that marks it as
 // returned, so the decompiler decides such a function is void: the game's random number generator
-// FUN_8c06d378 computes the new value into r0, and 202 call sites read it. The callers, decompiled
+// randomNext computes the new value into r0, and 202 call sites read it. The callers, decompiled
 // without the callee's prototype, do use r0. This finds each call whose output a caller uses and
 // gives the callee a 4-byte return in that register, unless its prototype was written by hand.
 // Header prototypes are corrected too: the libraries in the game are newer than the headers. A
@@ -10,7 +10,7 @@
 //
 // The decompiler also joins r1 to the result when r1 holds something at the return, which makes
 // the result 8 bytes in r1:r0. njCnkModelClip returns its 0 or 1 in r0 with a pointer left in r1,
-// and the game's modulo helpers FUN_8c064720 and FUN_8c0647d4 leave another value there. Their
+// and the game's modulo helpers mods32 and modu32 leave another value there. Their
 // callers then read r0 as extraout_r0, a value the C++ does not have: no model was ever clipped,
 // so objects that wait to be off screen were never deleted and drew from freed data. Such a
 // result becomes 4 bytes in r0 when no caller reads its upper word.

@@ -85,8 +85,7 @@ pdVmsLcdWrite1
 pdLcdGetDirection
 pdVibIsReady
 
-# The memory card's files (port/src/saves.cpp): a directory on the host. FUN_8c05837c tells
-# whether a file is on the card, FUN_8c057e40 counts its free blocks.
+# The memory card's files (port/src/saves.cpp): a directory on the host.
 buInit
 buIsReady
 buStat
@@ -94,8 +93,8 @@ buGetLastError
 buGetFileSize
 buLoadFile
 buSaveFile
-FUN_8c05837c
-FUN_8c057e40
+buIsExistFile
+buGetDiskFree
 
 # Ninja's matrix and trigonometry functions (port/src/ninja.cpp).
 njSin
@@ -129,7 +128,7 @@ njCalcScreen
 njCollisionCheckSS
 
 # The clock's register read (port/src/clock.cpp): the host's local time.
-FUN_8c044a5c
+syRtcAicaGetCount
 
 # Ninja's drawing: the strips that send the same store-queue blocks as its machine code, their
 # starts, and the render state that they use (port/src/ninja_draw.cpp).
@@ -193,8 +192,8 @@ njColorBlendingMode
 njSetkmCnkBlendMode
 njSetTextureNum
 njSetCurrentContext
-FUN_8c010910
-FUN_8c010926
+njEORCallback
+njEOVCallback
 njSetPunchThroughMode
 njBeginPass
 njEndPass
@@ -400,19 +399,19 @@ njCnkEasyMultiTexture
 njCnkEasyMultiPolygon
 njSetkmCnkTextureNum
 njSetkmColorMode
-FUN_8c019cd0
+njCnkEasyPlist
 njCnkEasyMultiPlist
 njCnkSetMaterial
 njCnkModelClip
 njCnkEasyVlist
-FUN_8c01a23a
+njCnkEasyDrawModel
 njCnkEasyMultiVlist
 njCnkEasyMultiDrawModel
 njCnkSimpleVertexVN
 njCnkSimpleTexture
 njCnkSimplePlist
-FUN_8c01ce1a
-FUN_8c01cf3e
+njCnkSimpleVlist
+njCnkSimpleDrawModel
 njCnkEasyTextureNearClip
 njCnkSimpleTextureDb
 njCnkSimpleTextureClip
@@ -430,10 +429,10 @@ njCnkEasyMultiTextureClip
 njCnkEasyPolygon
 njCnkEasyPolygonClip
 njCnkEasyPolygonNearClip
-FUN_8c01a2c8
-FUN_8c01a2ea
-FUN_8c029838
-FUN_8c02985a
+njCnkSetEasyMultiLight
+njCnkSetEasyMultiLightSwitch
+njCnkSetSimpleMultiLight
+njCnkSetSimpleMultiLightSwitch
 njCnkSimpleMultiVertexVN
 njCnkSimpleMultiTextureDiff
 njCnkSimpleMultiPolygonDiffEnv
@@ -441,26 +440,26 @@ njCnkEasyMultiTextureNearClip
 njCnkSimpleMultiVlist
 njCnkSimpleMultiPlist
 njCnkSimpleMultiDrawModel
-FUN_8c019ca4
-FUN_8c019cb2
-FUN_8c019cc0
-FUN_8c01c65c
-FUN_8c01c66a
+njCnkSetEasyLight
+njCnkSetEasyLightIntensity
+njCnkSetEasyLightColor
+njCnkSetSimpleLight
+njCnkSetSimpleLightIntensity
 njCnkSetSimpleLightColor
-FUN_8c01a322
-FUN_8c01a330
-FUN_8c01a348
-FUN_8c01a380
-FUN_8c01a3b2
-FUN_8c01a3ca
-FUN_8c029892
-FUN_8c0298a0
-FUN_8c0298b8
-FUN_8c0298f0
-FUN_8c029922
-FUN_8c02993a
+njCnkSetEasyMultiAmbient
+njCnkSetEasyMultiLightColor
+njCnkSetEasyMultiLightVectorEx
+njCnkSetEasyMultiLightPoint
+njCnkSetEasyMultiLightRange
+njCnkSetEasyMultiLightMatrices
+njCnkSetSimpleMultiAmbient
+njCnkSetSimpleMultiLightColor
+njCnkSetSimpleMultiLightVectorEx
+njCnkSetSimpleMultiLightPoint
+njCnkSetSimpleMultiLightRange
+njCnkSetSimpleMultiLightMatrices
 njCnkEasyDrawObject
-FUN_8c01cf94
+njCnkSimpleDrawObject
 njCnkEasyMultiDrawObject
 njCnkSimpleMultiDrawObject
 
@@ -492,27 +491,27 @@ njGetShapeGroupID
 njCalcShapeVlist
 _njCnkPushPopShape
 njCnkDrawShapeMotion
-FUN_8c016118
-FUN_8c016128
-FUN_8c016138
-FUN_8c016148
+njCnkEasyMultiDrawMotionLink
+njCnkEasyDrawMotionLink
+njCnkSimpleMultiDrawMotionLink
+njCnkSimpleDrawMotionLink
 njCnkEasyMultiDrawShapeMotion
 FUN_8c0173dc
-FUN_8c016170
-FUN_8c0162a8
+njGetCameraMotion
+njCameraMotion
 
 # Ninja's initialization and its end (port/src/ninja_init.cpp).
 njInitContext
 njInitGlobal
-FUN_8c01098a
+njInitDevice
 njInitMatrix
 njInit3D
 njClipZ
-FUN_8c0108f8
-FUN_8c01126a
+njSetEORCallback
+njSetWaitVsyncCount
 njSetBackColor
 njCalcVertexBufferSize
-FUN_8c0109de
+njInitSystem
 njInitVertexBufferEx
 njExitSystem
 
