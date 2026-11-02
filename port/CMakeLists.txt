@@ -118,15 +118,29 @@ target_compile_options(ikaruga PRIVATE -g -Wall -Wextra -Wno-unused-parameter -f
 # plays in a window and asks for the disc once (README).
 set(IKARUGA_BUNDLE "${CMAKE_CURRENT_BINARY_DIR}/Ikaruga.app")
 configure_file(Info.plist.in "${CMAKE_CURRENT_BINARY_DIR}/Info.plist" COPYONLY)
+
+# The app's icon, which icon/icon.cpp draws and iconutil packs.
+add_executable(ikaruga-icon icon/icon.cpp)
+target_link_libraries(ikaruga-icon PRIVATE "-framework CoreGraphics" "-framework ImageIO" "-framework CoreFoundation")
+set(IKARUGA_ICONSET "${CMAKE_CURRENT_BINARY_DIR}/Ikaruga.iconset")
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/Ikaruga.icns"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${IKARUGA_ICONSET}"
+  COMMAND ikaruga-icon "${IKARUGA_ICONSET}"
+  COMMAND iconutil -c icns "${IKARUGA_ICONSET}" -o "${CMAKE_CURRENT_BINARY_DIR}/Ikaruga.icns"
+  DEPENDS ikaruga-icon
+  VERBATIM)
+
 add_custom_command(OUTPUT "${IKARUGA_BUNDLE}/Contents/MacOS/ikaruga"
   COMMAND ${CMAKE_COMMAND} -E make_directory "${IKARUGA_BUNDLE}/Contents/MacOS"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${IKARUGA_BUNDLE}/Contents/Resources"
   COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_BINARY_DIR}/Info.plist" "${IKARUGA_BUNDLE}/Contents/Info.plist"
+  COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_BINARY_DIR}/Ikaruga.icns" "${IKARUGA_BUNDLE}/Contents/Resources/Ikaruga.icns"
   # A new file each time: macOS kills a program whose file was written over after it ran.
   COMMAND ${CMAKE_COMMAND} -E rm -f "${IKARUGA_BUNDLE}/Contents/MacOS/ikaruga"
   COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:ikaruga>" "${IKARUGA_BUNDLE}/Contents/MacOS/ikaruga"
   # An ad-hoc signature, which seals the Info.plist with the program.
   COMMAND codesign --force --sign - "${IKARUGA_BUNDLE}"
-  DEPENDS ikaruga "${CMAKE_CURRENT_BINARY_DIR}/Info.plist"
+  DEPENDS ikaruga "${CMAKE_CURRENT_BINARY_DIR}/Info.plist" "${CMAKE_CURRENT_BINARY_DIR}/Ikaruga.icns"
   COMMENT "Ikaruga.app"
   VERBATIM)
 add_custom_target(bundle ALL DEPENDS "${IKARUGA_BUNDLE}/Contents/MacOS/ikaruga")

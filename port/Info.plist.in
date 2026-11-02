@@ -6,6 +6,8 @@
 <dict>
     <key>CFBundleExecutable</key>
     <string>ikaruga</string>
+    <key>CFBundleIconFile</key>
+    <string>Ikaruga</string>
     <key>CFBundleIdentifier</key>
     <string>local.ikaruga-decomp.port</string>
     <key>CFBundleName</key>
