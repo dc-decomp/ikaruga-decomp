@@ -40,7 +40,9 @@ void chunk(std::FILE* f, const char* tag, const std::vector<uint8_t>& body) {
     std::fwrite(tag, 1, 4, f);
     std::fwrite(body.data(), 1, body.size(), f);
     uLong crc = crc32(0, reinterpret_cast<const Bytef*>(tag), 4);
-    crc = crc32(crc, body.data(), static_cast<uInt>(body.size()));
+    // crc32 with a null buffer resets the CRC, which an empty body (IEND) would hit.
+    if (!body.empty())
+        crc = crc32(crc, body.data(), static_cast<uInt>(body.size()));
     be(static_cast<uint32_t>(crc));
 }
 

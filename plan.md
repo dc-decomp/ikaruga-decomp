@@ -59,7 +59,7 @@ Suspects, most likely first:
 
 ## 4. Work plan
 
-### Phase A: get a trustworthy way to compare (do first)
+### Phase A: get a trustworthy way to compare (done, see below)
 - A1. Add a harness mode that saves **frame-synchronised** screenshots at fixed frame numbers (the
   game already has `--screenshot-at` and `--screenshot-path`), so runs are comparable and not
   timing-dependent.
@@ -68,6 +68,38 @@ Suspects, most likely first:
   ground truth on Linux without a Mac.
 - A3. Check `/tmp/ikaruga-headless-*` stale locks and make `headless_run.sh` detect a dead Xvfb
   lock automatically.
+
+### Phase A: results (done 2026-11-05)
+
+Tools, all going through `tools/linux/headless_run.sh` or needing no game window:
+- `tools/linux/render_set.sh OUT FRAME...`: plays autoplay to each frame and writes `fN.ta` (display
+  list, VRAM, PVR registers) and a frame-exact `fN.ppm`. The screenshot is taken at FRAME+2; it then
+  equals `render-view` on the dump with **0 differing pixels** (checked on frame 3000), so the dump
+  path is a faithful replay of the game's own rendering.
+- `tools/linux/compare_set.sh OUT`: draws each dump with `render-view` (the port's renderer) and
+  `dream_render_view` (dream-recomp's renderer, on a private Xvfb) and writes `fN.pair.png`.
+- Harness fixes: a dead Xvfb's lock no longer blocks a display, `EXTRA=` now overrides the conf, and
+  `RUN_ENV="A=1"` passes game variables.
+
+Reference caveat: dream-recomp's renderer is the lineage the Metal one came from, not Metal. Exact
+Metal parity still needs `render-view` run on a Mac against the same `.ta` dumps (they hold game data,
+so they stay out of the repository). Until then dream's pictures are the working reference.
+
+Bugs found and fixed while building the tools:
+1. `render-view` and any windowless run crashed in `Gpu::create` (SDL extension query with no window).
+   The backend now works with no surface or swapchain.
+2. **Band viewport**: each band's viewport covered only the band's rows, squeezing the whole scene into
+   every band. Metal uses the full target and a scissor. Fixed.
+3. **Y flip**: Vulkan stored every target upside down, so screenshots and `read_target` were flipped and
+   all scissor rows were mirrored. Every viewport is now flipped (negative height), as Metal's
+   top-left origin.
+4. `render-view`'s PNG had a bad IEND CRC.
+
+Remaining difference after A, on frames 700, 3000, 9500 and 30000 (141k to 300k of 307k pixels differ):
+- The opaque textured 3D is missing: stage backgrounds, bosses and the player's ship render black,
+  while HUD, bullets and some translucent parts draw. Start B with the opaque depth path.
+- The mode-select box is clipped at x = 320 (half the width).
+- The menu's backdrop and highlight glow are missing.
 
 ### Phase B: fix the Vulkan renderer (one fix at a time, each checked against the reference)
 - B1. Run with `VK_LAYER_KHRONOS_validation` and clear every validation error first.

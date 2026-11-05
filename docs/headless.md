@@ -36,3 +36,17 @@ Output is under `/tmp/ikaruga-headless-$USER-91/out`. `DISPLAY_NUM=92` is free f
 - Real-pad line: `input: opened gamepad`.
 - Default key script: repeated Return, because the first boot has a cold shader cache.
 - Perf: `IKARUGA_PACING=1` prints the frame-pacing summary at shutdown.
+
+## Render comparison
+
+```sh
+DISPLAY_NUM=91 tools/linux/render_set.sh /tmp/ikaruga-renderset 700 3000 9500 30000
+tools/linux/compare_set.sh /tmp/ikaruga-renderset
+```
+
+`render_set.sh` plays the game to each frame through the harness and writes the display list
+(`fN.ta`) and the frame-exact picture (`fN.ppm`, taken at N+2). `compare_set.sh` draws every dump
+with `build-port/render-view` (the port's renderer) and dream-recomp's renderer, and writes
+`fN.pair.png` (reference left, port right). Build the tools first:
+`cmake --build build-port --target render-view dream_render_view`. The dumps hold game data: keep
+them out of the repository. A stale lock file of a dead Xvfb no longer blocks a display.

@@ -123,6 +123,12 @@ uint64_t texture_key(const TextureFormat& t, uint32_t palette_format) {
     return hash_bytes(reinterpret_cast<const uint8_t*>(fields), sizeof fields, 0);
 }
 
+// Metal's framebuffer has its origin at the top left and Metal's clip space has y up, so the
+// vertex shaders' y = +1 is row 0. Vulkan's clip space has y down. A viewport with a negative
+// height flips it (core since Vulkan 1.1), so every pass draws, samples and scissors the rows
+// as Metal's do: the targets are top-down, as read_target() and the screenshots expect.
+VkViewport metal_viewport(float x, float y, float w, float h) { return VkViewport{x, y + h, w, -h, 0.0f, 1.0f}; }
+
 VkBlendFactor blend_factor(uint32_t instruction, bool source) {
     switch (instruction & 7) {
         case 0: return VK_BLEND_FACTOR_ZERO;
@@ -936,7 +942,7 @@ void Gpu::Impl::fullscreen(VkCommandBuffer buffer, VkRenderPass pass, VkFramebuf
     begin.framebuffer = framebuffer;
     begin.renderArea = {{0, 0}, extent};
     vkCmdBeginRenderPass(buffer, &begin, VK_SUBPASS_CONTENTS_INLINE);
-    VkViewport viewport{0, 0, static_cast<float>(extent.width), static_cast<float>(extent.height), 0, 1};
+    VkViewport viewport = metal_viewport(0, 0, static_cast<float>(extent.width), static_cast<float>(extent.height));
     vkCmdSetViewport(buffer, 0, 1, &viewport);
     VkRect2D scissor{{0, 0}, extent};
     vkCmdSetScissor(buffer, 0, 1, &scissor);
@@ -1057,8 +1063,8 @@ void Gpu::Impl::encode() {
         pass.clearValueCount = 2;
         pass.pClearValues = clears;
         vkCmdBeginRenderPass(cmd, &pass, VK_SUBPASS_CONTENTS_INLINE);
-        VkViewport viewport{0, static_cast<float>(band.y0), static_cast<float>(width),
-                            static_cast<float>(band.y1 - band.y0), 0, 1};
+        // The whole target, as Metal's default viewport is; the scissor below selects the band's rows.
+        VkViewport viewport = metal_viewport(0, 0, static_cast<float>(width), static_cast<float>(height));
         vkCmdSetViewport(cmd, 0, 1, &viewport);
         VkRect2D scissor{{0, static_cast<int32_t>(band.y0)}, {width, band.y1 - band.y0}};
         vkCmdSetScissor(cmd, 0, 1, &scissor);
@@ -1229,6 +1235,15 @@ void Gpu::Impl::encode() {
 }
 
 void Gpu::Impl::create_swapchain() {
+    if (!surface) {
+        // No window: no swapchain, but the pipelines that the render paths build against swap_pass.
+        if (!swap_pass) {
+            swap_format = VK_FORMAT_B8G8R8A8_UNORM;
+            swap_pass = make_swap_pass(device, swap_format);
+            swap_pass_format = swap_format;
+        }
+        return;
+    }
     VkSurfaceCapabilitiesKHR caps{};
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical, surface, &caps);
     uint32_t formats = 0;
@@ -1448,13 +1463,18 @@ bool Gpu::create(SDL_Window* window, unsigned scale, std::string& error) {
     m.width = 640 * m.scale;
     m.height = 480 * m.scale;
 
-    uint32_t sdl_extensions = 0;
-    const char* const* sdl_names = SDL_Vulkan_GetInstanceExtensions(&sdl_extensions);
-    if (!sdl_names || !sdl_extensions) {
-        error = std::string("SDL has no Vulkan loader: ") + SDL_GetError();
-        return false;
+    // A run without a window (render-view, tests) has no surface: it needs no SDL extension, no
+    // present queue and no swapchain, and only draws into the targets that read_displayed() reads.
+    std::vector<const char*> extensions;
+    if (window) {
+        uint32_t sdl_extensions = 0;
+        const char* const* sdl_names = SDL_Vulkan_GetInstanceExtensions(&sdl_extensions);
+        if (!sdl_names || !sdl_extensions) {
+            error = std::string("SDL has no Vulkan loader: ") + SDL_GetError();
+            return false;
+        }
+        extensions.assign(sdl_names, sdl_names + sdl_extensions);
     }
-    std::vector<const char*> extensions(sdl_names, sdl_names + sdl_extensions);
     uint32_t available_extensions = 0;
     vkEnumerateInstanceExtensionProperties(nullptr, &available_extensions, nullptr);
     std::vector<VkExtensionProperties> extension_properties(available_extensions);
@@ -1498,7 +1518,7 @@ bool Gpu::create(SDL_Window* window, unsigned scale, std::string& error) {
         error = std::string("no Vulkan instance: ") + vk_result(ir);
         return false;
     }
-    if (!SDL_Vulkan_CreateSurface(window, m.instance, nullptr, &m.surface)) {
+    if (window && !SDL_Vulkan_CreateSurface(window, m.instance, nullptr, &m.surface)) {
         error = std::string("no Vulkan surface: ") + SDL_GetError();
         return false;
     }
@@ -1519,7 +1539,10 @@ bool Gpu::create(SDL_Window* window, unsigned scale, std::string& error) {
         int graphics = -1, present = -1;
         for (uint32_t i = 0; i < families; ++i) {
             VkBool32 supported = VK_FALSE;
-            vkGetPhysicalDeviceSurfaceSupportKHR(candidate, i, m.surface, &supported);
+            if (m.surface)
+                vkGetPhysicalDeviceSurfaceSupportKHR(candidate, i, m.surface, &supported);
+            else
+                supported = (queue_families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) ? VK_TRUE : VK_FALSE;
             if ((queue_families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && graphics < 0)
                 graphics = static_cast<int>(i);
             if (supported && present < 0)
@@ -1557,7 +1580,7 @@ bool Gpu::create(SDL_Window* window, unsigned scale, std::string& error) {
     VkDeviceCreateInfo device_info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     device_info.queueCreateInfoCount = m.graphics_family == m.present_family ? 1 : 2;
     device_info.pQueueCreateInfos = queues;
-    device_info.enabledExtensionCount = 1;
+    device_info.enabledExtensionCount = m.surface ? 1 : 0;
     device_info.ppEnabledExtensionNames = device_extensions;
     device_info.pEnabledFeatures = &features;
     if (vkCreateDevice(m.physical, &device_info, nullptr, &m.device) != VK_SUCCESS) {
@@ -1931,9 +1954,9 @@ void Gpu::present(const Hardware& hw, double refresh, bool white, double mark) {
         }
         const int taps = std::clamp(static_cast<int>(std::ceil(static_cast<double>(m.height) / h - 0.01)), 1, 8);
         const Pass p{{static_cast<float>(1.0 / (w * taps)), static_cast<float>(1.0 / (h * taps))}, taps, 0};
-        VkViewport viewport{static_cast<float>((m.swap_extent.width - w) / 2),
-                            static_cast<float>((m.swap_extent.height - h) / 2), static_cast<float>(w),
-                            static_cast<float>(h), 0, 1};
+        VkViewport viewport = metal_viewport(static_cast<float>((m.swap_extent.width - w) / 2),
+                                             static_cast<float>((m.swap_extent.height - h) / 2),
+                                             static_cast<float>(w), static_cast<float>(h));
         vkCmdSetViewport(m.cmd, 0, 1, &viewport);
         VkRect2D scissor{{0, 0}, m.swap_extent};
         vkCmdSetScissor(m.cmd, 0, 1, &scissor);
@@ -1948,8 +1971,8 @@ void Gpu::present(const Hardware& hw, double refresh, bool white, double mark) {
         VkDescriptorSet set = m.descriptor(m.present_layout);
         m.write_image(set, 0, m.overlay_shown->view, m.present_sampler);
         const Pass p{{0, 0}, 1, 0};
-        VkViewport viewport{0, 0, static_cast<float>(m.swap_extent.width), static_cast<float>(m.swap_extent.height), 0,
-                            1};
+        VkViewport viewport = metal_viewport(0, 0, static_cast<float>(m.swap_extent.width),
+                                             static_cast<float>(m.swap_extent.height));
         vkCmdSetViewport(m.cmd, 0, 1, &viewport);
         vkCmdBindPipeline(m.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m.overlay);
         vkCmdBindDescriptorSets(m.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m.present_pipeline_layout, 0, 1, &set, 0,

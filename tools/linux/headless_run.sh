@@ -7,7 +7,8 @@
 # env: RUNS=N          repeat N times and print a crash total
 #      GDB=1           run under gdb, backtrace the first crash
 #      PIN=2-5         taskset CPU list
-#      EXTRA="--a=b"   extra app flags
+#      EXTRA="--a=b"   app flags, replacing the conf's EXTRA (the safety flags are always added)
+#      RUN_ENV="A=1"   extra environment variables for the game
 #      DISPLAY_NUM, BUILD_DIR, RUN_DIR, OUT_DIR, CONF
 #      ALLOW_USER_GAME=1  run even though a copy of the game outside a headless run dir is running
 #
@@ -31,7 +32,12 @@ X=":$DISPLAY_NUM"
 need=(Xvfb xdotool import); [ "${GDB:-0}" = 1 ] && need+=(gdb); [ -n "${PIN:-}" ] && need+=(taskset)
 for t in "${need[@]}"; do command -v "$t" >/dev/null || { echo "missing tool: $t"; exit 1; }; done
 [ -x "$BUILD_DIR/$GAME" ] || { echo "no executable at $BUILD_DIR/$GAME"; exit 1; }
-if [ -e "/tmp/.X11-unix/X$DISPLAY_NUM" ] || [ -e "/tmp/.X$DISPLAY_NUM-lock" ]; then
+# A lock file whose Xvfb is gone is stale: Xvfb replaces it and its socket, so it is no reason to
+# refuse the display. A live owner (or an X server without a lock file) is.
+lock="/tmp/.X$DISPLAY_NUM-lock"
+if [ -e "$lock" ] && ! kill -0 "$(tr -d ' ' < "$lock" 2>/dev/null)" 2>/dev/null; then
+  echo "display $X: stale lock of a dead X server, reusing it"
+elif [ -e "/tmp/.X11-unix/X$DISPLAY_NUM" ] || [ -e "$lock" ]; then
   echo "display $X is in use (another agent?). Pick another DISPLAY_NUM."; exit 1
 fi
 
@@ -76,6 +82,9 @@ ENVV=(-u WAYLAND_DISPLAY DISPLAY="$X" SDL_VIDEODRIVER=x11 SDL_JOYSTICK_HIDAPI=0)
 [ "${GRAPHICS:-vulkan}" = vulkan ] && ENVV+=(MESA_VK_WSI_DEBUG=sw)
 [ -n "${PAD_IGNORE:-}" ] && ENVV+=(SDL_GAMECONTROLLER_IGNORE_DEVICES="$PAD_IGNORE")
 ENVV+=("${EXTRA_ENV[@]}")
+# RUN_ENV="A=1 B=2": more variables for this run only (IKARUGA_DUMP_TA and the like). No spaces in values.
+# shellcheck disable=SC2206
+[ -n "${RUN_ENV:-}" ] && ENVV+=($RUN_ENV)
 
 XPID=; GPID=
 cleanup() {
