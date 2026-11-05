@@ -764,6 +764,39 @@ struct Gpu::Impl {
         return t;
     }
 
+    void create_target(Target& target, VkCommandBuffer cmd) {
+        image(width, height, 1, VK_FORMAT_R8G8B8A8_UNORM,
+              VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                  VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+              target.image, target.memory);
+        target.view = view(target.image, VK_FORMAT_R8G8B8A8_UNORM);
+        image(width, height, 1, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, target.depth,
+              target.depth_memory);
+        target.depth_view = view(target.depth, VK_FORMAT_D32_SFLOAT, VK_IMAGE_ASPECT_DEPTH_BIT);
+        transition(cmd, target.depth, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                   VK_IMAGE_ASPECT_DEPTH_BIT);
+        VkImageView views[2] = {target.view, target.depth_view};
+        VkFramebufferCreateInfo fb{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+        fb.renderPass = band_load_pass;
+        fb.attachmentCount = 2;
+        fb.pAttachments = views;
+        fb.width = width;
+        fb.height = height;
+        fb.layers = 1;
+        vkCreateFramebuffer(device, &fb, nullptr, &target.framebuffer);
+        target.layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    }
+
+    void destroy_target(Target& t) {
+        vkDestroyFramebuffer(device, t.framebuffer, nullptr);
+        vkDestroyImageView(device, t.view, nullptr);
+        vkDestroyImage(device, t.image, nullptr);
+        vkFreeMemory(device, t.memory, nullptr);
+        vkDestroyImageView(device, t.depth_view, nullptr);
+        vkDestroyImage(device, t.depth, nullptr);
+        vkFreeMemory(device, t.depth_memory, nullptr);
+    }
+
     void destroy_targets();
     void size_buffers();
     void encode();
@@ -813,15 +846,8 @@ bool Gpu::Impl::read_image(VkImage image, uint32_t iw, uint32_t ih, VkImageLayou
 }
 
 void Gpu::Impl::destroy_targets() {
-    for (auto& [address, t] : targets) {
-        vkDestroyFramebuffer(device, t.framebuffer, nullptr);
-        vkDestroyImageView(device, t.view, nullptr);
-        vkDestroyImage(device, t.image, nullptr);
-        vkFreeMemory(device, t.memory, nullptr);
-        vkDestroyImageView(device, t.depth_view, nullptr);
-        vkDestroyImage(device, t.depth, nullptr);
-        vkFreeMemory(device, t.depth_memory, nullptr);
-    }
+    for (auto& [address, t] : targets)
+        destroy_target(t);
     targets.clear();
     for (int i = 0; i < 4; ++i) {
         if (glow_framebuffer[i]) vkDestroyFramebuffer(device, glow_framebuffer[i], nullptr);
@@ -1024,27 +1050,8 @@ void Gpu::Impl::encode() {
                          nullptr, 0, nullptr);
 
     Target& target = targets[newest];
-    if (!target.framebuffer) {
-        image(width, height, 1, VK_FORMAT_R8G8B8A8_UNORM,
-              VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-              target.image, target.memory);
-        target.view = view(target.image, VK_FORMAT_R8G8B8A8_UNORM);
-        image(width, height, 1, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, target.depth,
-              target.depth_memory);
-        target.depth_view = view(target.depth, VK_FORMAT_D32_SFLOAT, VK_IMAGE_ASPECT_DEPTH_BIT);
-        transition(cmd, target.depth, VK_IMAGE_LAYOUT_UNDEFINED,
-                   VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
-        VkImageView views[2] = {target.view, target.depth_view};
-        VkFramebufferCreateInfo fb{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-        fb.renderPass = band_load_pass;
-        fb.attachmentCount = 2;
-        fb.pAttachments = views;
-        fb.width = width;
-        fb.height = height;
-        fb.layers = 1;
-        vkCreateFramebuffer(device, &fb, nullptr, &target.framebuffer);
-        target.layout = VK_IMAGE_LAYOUT_UNDEFINED;
-    }
+    if (!target.framebuffer)
+        create_target(target, cmd);
     transition(cmd, target.image, target.layout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     target.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
@@ -2093,10 +2100,35 @@ void Gpu::set_scale(unsigned scale) {
     if (!m.device || scale == m.scale)
         return;
     m.wait();
+    // The framebuffers so far are scaled to the new size, as Metal's resample does, so that the
+    // window shows the last frame while the game stops (the menu's GRAPHICS page).
+    auto old = std::move(m.targets);
+    m.targets.clear();
+    const uint32_t old_width = m.width, old_height = m.height;
     m.scale = scale;
     m.width = 640 * scale;
     m.height = 480 * scale;
     m.size_buffers();
+    VkCommandBuffer one = m.begin_once();
+    for (auto& [address, t] : old) {
+        Impl::Target& n = m.targets[address];
+        m.create_target(n, one);
+        n.used = t.used;
+        m.transition(one, t.image, t.layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        m.transition(one, n.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkImageBlit blit{};
+        blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        blit.srcOffsets[1] = {static_cast<int32_t>(old_width), static_cast<int32_t>(old_height), 1};
+        blit.dstOffsets[1] = {static_cast<int32_t>(m.width), static_cast<int32_t>(m.height), 1};
+        vkCmdBlitImage(one, t.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, n.image,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+        m.transition(one, n.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        n.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    }
+    m.end_once(one);
+    for (auto& [address, t] : old)
+        m.destroy_target(t);
     std::printf("render: drawing at %ux%u\n", m.width, m.height);
 }
 

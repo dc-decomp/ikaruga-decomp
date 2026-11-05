@@ -124,7 +124,14 @@ feature. A heat map of the remainder shows only one-pixel edge outlines (the ref
 960x720 and is resampled), so B1's tail is closed. Validation is clean in `render-view` and in a
 60 s windowed run; the leaked present/overlay pipelines and the windowless PRESENT_SRC layout are fixed.
 
-Still open in B (the first three items are done: B1 tail, validation, warning):
+B6/B7 results: bloom draws (halo on the HUD and bullets) and 2x agrees with 1x apart from resampling
+edges. A scale change (the menu's GRAPHICS page) now resamples the existing framebuffers, as Metal
+does, instead of dropping them ("no scaled picture"); `--scale 4 --rescale 1` is within 0.5% of a plain
+1x render and clean under validation. The same dumps through lavapipe and RADV differ by 0 to 60 of
+307200 pixels, so the picture does not depend on the driver. Fullscreen and the desktop's own
+compositor are not testable headless.
+
+Still open in B (done: B1 tail, validation, warning, B6 except fullscreen, B7 on Linux):
 - B1 tail: the remaining 2% (edges? filtering? bloom is off in render-view); find what differs with a
   per-pixel diff image, and check more frames (every stage, bosses, the ending, the ranking screens).
 - Validation at shutdown: `VUID-vkDestroyDevice-device-05137` (a leaked object); the windowless swap pass
