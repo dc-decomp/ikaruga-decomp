@@ -598,9 +598,12 @@ struct Gpu::Impl {
                              uint32_t key) {
         if (auto it = cache.find(key); it != cache.end())
             return it->second;
-        VkPipeline p = build(vs_geometry, fragment, band_load_pass, geometry_pipeline_layout, true, true, false,
-                             VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO, compare(depth), false,
-                             fragment != fs_translucent);
+        // The translucent fragments only fill the lists and write no colour. The adding ones return
+        // their term, which the framebuffer sums with a blend of one and one, as Metal's `sum` does.
+        const bool adding = fragment != fs_translucent;
+        VkPipeline p = build(vs_geometry, fragment, band_load_pass, geometry_pipeline_layout, true, true, adding,
+                             VK_BLEND_FACTOR_ONE, adding ? VK_BLEND_FACTOR_ONE : VK_BLEND_FACTOR_ZERO,
+                             compare(depth), false, adding);
         cache[key] = p;
         return p;
     }
@@ -1081,8 +1084,9 @@ void Gpu::Impl::encode() {
                     continue;
                 VkPipeline p = VK_NULL_HANDLE;
                 if (d.adds)
-                    p = list_pipeline(add_strips ? added_top_pipelines : added_pipelines,
-                                      add_strips ? fs_added_top : fs_added, d.depth, d.depth);
+                    // The adding strips of this pass come before the sort, with the added fragment shader;
+                    // the added_top one runs after it (top_strips below), as in Metal.
+                    p = list_pipeline(added_pipelines, fs_added, d.depth, d.depth);
                 else if (d.translucent)
                     p = list_pipeline(translucent_pipelines, fs_translucent, d.depth, d.depth);
                 else
