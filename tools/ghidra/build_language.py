@@ -264,7 +264,14 @@ def patch(text: str, old: str, new: str, what: str) -> str:
 def settings_dir() -> tuple[Path, str]:
     kv = ghidra_properties()
     version, release = kv["application.version"], kv["application.release.name"]
-    return ROOT / "ghidra" / "home" / "Library" / "ghidra" / f"ghidra_{version}_{release}", version
+    home = ROOT / "ghidra" / "home"
+    if sys.platform == "darwin":
+        base = home / "Library" / "ghidra"
+    elif os.name == "nt":
+        base = home / "AppData" / "Roaming" / "ghidra"
+    else:
+        base = home / ".config" / "ghidra"
+    return base / f"ghidra_{version}_{release}", version
 
 
 def main() -> int:
@@ -313,7 +320,8 @@ def main() -> int:
 
     env = {**os.environ, "JAVA_HOME": JAVA_HOME,
            "JAVA_TOOL_OPTIONS": f"-Duser.home={ROOT / 'ghidra' / 'home'} "
-                                f"-Djava.io.tmpdir={ROOT / 'ghidra' / 'tmp'}"}
+                                f"-Djava.io.tmpdir={ROOT / 'ghidra' / 'tmp'}",
+           "XDG_CONFIG_HOME": str(ROOT / "ghidra" / "home" / ".config")}
     (ROOT / "ghidra" / "tmp").mkdir(parents=True, exist_ok=True)
     subprocess.run([str(GHIDRA / "support" / "sleigh"), str(lang / "SuperH4_katana.slaspec")],
                    check=True, env=env)

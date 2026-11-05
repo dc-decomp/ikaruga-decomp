@@ -1,10 +1,13 @@
 // The native port's entry point: loads the game into guest memory, prepares what the boot ROM would
 // have left behind, and runs the decompiled game from its own entry point.
+#ifndef _WIN32
 #include <execinfo.h>
 #include <signal.h>
 #include <unistd.h>
+#endif
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -32,6 +35,12 @@
 #include "render/window.h"
 #include "saves.h"
 #include "sh4/sh4.h"
+
+#ifdef _WIN32
+// Included after the decomp: windows.h defines VOID as a macro, which would rewrite the generated
+// `typedef void VOID` into `typedef void void`. The game headers do not use windows.h.
+#include <windows.h>
+#endif
 
 namespace bios {
 void install_vectors();
@@ -70,7 +79,7 @@ void usage() {
     std::fprintf(stderr,
                  "usage: ikaruga [options]\n"
                  "  --disc FILE.gdi   the disc (default for a window that is not scripted the one it asked for,\n"
-                 "                    else game/disc/Ikaruga (Japan).gdi)\n"
+                 "                    else game/disc/disc.gdi)\n"
                  "  --boot FILE       1ST_READ.BIN, descrambled (default the disc's)\n"
                  "  --bios FILE       a boot ROM image, for the system font (optional: else macOS's Hiragino)\n"
                  "  --saves DIR       the memory card's files (default saves, or for a window that is not\n"
@@ -88,6 +97,7 @@ void usage() {
                  "                    controller, which the run then has\n"
                  "  --wav FILE        record the sound as 16-bit stereo at 44.1 kHz\n"
                  "  --no-audio        play no sound in the window\n"
+                 "  --no-gamepads     never open a gamepad, for scripted or headless runs\n"
                  "  --record-input FILE  write the controller state of every frame where it changes\n"
                  "  --replay-input FILE  play such a recording back instead of the controls; the format\n"
                  "                    is dream-recomp's, so a recording from the reference build works\n");
@@ -96,6 +106,7 @@ void usage() {
 }  // namespace
 
 // A crash in the decompiled code prints where it happened.
+#ifndef _WIN32
 void on_crash(int sig) {
     void* frames[64];
     const int n = backtrace(frames, 64);
@@ -105,8 +116,19 @@ void on_crash(int sig) {
     backtrace_symbols_fd(frames, n, STDERR_FILENO);
     _exit(128 + sig);
 }
+#else
+LONG WINAPI on_crash(EXCEPTION_POINTERS* info) {
+    trace::print(stderr, 60);
+    trace::print_stack(stderr);
+    std::fprintf(stderr, "exception %08lx at %p\n", info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionCode : 0ul,
+                 info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionAddress : nullptr);
+    std::fflush(stderr);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+#endif
 
 int main(int argc, char** argv) {
+#ifndef _WIN32
     // On its own stack, so that a stack overflow still reports.
     static char alt[1 << 16];
     stack_t ss{};
@@ -119,12 +141,15 @@ int main(int argc, char** argv) {
     sigaction(SIGSEGV, &sa, nullptr);
     sigaction(SIGBUS, &sa, nullptr);
     sigaction(SIGABRT, &sa, nullptr);
-    std::string disc = "game/disc/Ikaruga (Japan).gdi", boot, saves_dir;
+#else
+    SetUnhandledExceptionFilter(on_crash);
+#endif
+    std::string disc = "game/disc/disc.gdi", boot, saves_dir;
     bool disc_given = false;
     std::string bios_rom;
     uint64_t max_frames = 0;
     std::vector<uint64_t> screenshots;
-    bool window = false, unthrottled = false, audio = true;
+    bool window = false, unthrottled = false, audio = true, gamepads = true;
     std::string wav_path;
     int scale = 0;
     std::string screenshot_path = "ikaruga.ppm";
@@ -197,6 +222,7 @@ int main(int argc, char** argv) {
         else if (a == "--record-input") record_path = next();
         else if (a == "--replay-input") replay_path = next();
         else if (a == "--no-audio") audio = false;
+        else if (a == "--no-gamepads") gamepads = false;
         else if (a.rfind("-psn_", 0) == 0) continue;  // the process serial number older macOS passes
         else {
             std::fprintf(stderr, "ikaruga: unknown option %s\n", a.c_str());
@@ -314,12 +340,14 @@ int main(int argc, char** argv) {
         // METAL HUD then shows or hides it (render/gpu.h). Not in a scripted run, whose output it
         // would fill with its notes.
         if (!scripted_run) {
+#ifdef __APPLE__
             setenv("MTL_HUD_ENABLED", "1", 0);
             setenv("MTL_HUD_DISABLE_MENU_BAR", "1", 0);  // the menu's row switches it, not the menu bar's
+#endif
             hw::second_pad() = true;
         }
         screen = std::make_unique<render::Window>();
-        if (!screen->open(static_cast<unsigned>(scale), "Ikaruga", scripted_run, error)) {
+        if (!screen->open(static_cast<unsigned>(scale), "Ikaruga", scripted_run, gamepads, error)) {
             std::fprintf(stderr, "window: %s\n", error.c_str());
             return 2;
         }
@@ -719,12 +747,14 @@ int main(int argc, char** argv) {
         if (max_frames && frame >= max_frames) {
             trace::print_stack(stdout);
             sh4::report(stdout);
+#ifndef _WIN32
             if (std::getenv("IKARUGA_BACKTRACE")) {
                 void* frames[64];
                 const int n = backtrace(frames, 64);
                 std::fflush(stdout);
                 backtrace_symbols_fd(frames, n, STDOUT_FILENO);
             }
+#endif
             throw StopRun{"frame limit"};
         }
     });

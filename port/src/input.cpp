@@ -30,13 +30,19 @@ constexpr uint32_t kCard = 1;  // port A's first slot
 constexpr uint32_t kController = 0x000F06FEu;
 constexpr uint32_t kRight = 0x10000u, kLeft = 0x20000u;
 
+// The first server pass records the controller's state without edges: starting with old = 0
+// would make every idle button look newly pressed (and pdIsPadReset would end the game).
+bool edges_primed[24] = {};
+
 void clear(uint32_t r, bool optimize) {
     guest::store<uint32_t>(r + offsetof(PDS_PERIPHERAL, id), 0);
     guest::store<uint32_t>(r + offsetof(PDS_PERIPHERAL, support), 0);
     guest::store<uint32_t>(r + offsetof(PDS_PERIPHERAL, on), optimize ? ~0u : 0u);
     guest::store<uint32_t>(r + offsetof(PDS_PERIPHERAL, off), optimize ? 0u : ~0u);
-    guest::store<uint32_t>(r + offsetof(PDS_PERIPHERAL, press), optimize ? ~0u : 0u);
-    guest::store<uint32_t>(r + offsetof(PDS_PERIPHERAL, release), optimize ? ~0u : 0u);
+    // An empty port has no buttons down and no edges: press and release must stay zero. Marking
+    // them active would make pdIsPadReset see Start on every empty port, which ends the game.
+    guest::store<uint32_t>(r + offsetof(PDS_PERIPHERAL, press), 0u);
+    guest::store<uint32_t>(r + offsetof(PDS_PERIPHERAL, release), 0u);
     for (uint32_t o = offsetof(PDS_PERIPHERAL, r); o < offsetof(PDS_PERIPHERAL, name); o += 2)
         guest::store<uint16_t>(r + o, 0);
     guest::store<uint32_t>(r + offsetof(PDS_PERIPHERAL, extend), 0);
@@ -87,6 +93,7 @@ void pdInitPeripheral(Sint32 logic, gptr<void>, gptr<void>) {
         clear(r, logic != 0);
         guest::store<uint32_t>(r + offsetof(PDS_PERIPHERAL, old), 0);
         guest::store<uint32_t>(r + offsetof(PDS_PERIPHERAL, info), 0);
+        edges_primed[port] = false;
         guest::store<uint8_t>(kLeftDown + port, 0);
         guest::store<uint8_t>(kRightDown + port, 0);
     }
@@ -119,6 +126,13 @@ void pdExecPeripheralServerUser() {
         const uint32_t on = guest::load<uint32_t>(r + offsetof(PDS_PERIPHERAL, on));
         const uint32_t off = ~on;
         guest::store<uint32_t>(r + offsetof(PDS_PERIPHERAL, off), off);
+        if (!edges_primed[port]) {
+            guest::store<uint32_t>(r + offsetof(PDS_PERIPHERAL, old), on);
+            guest::store<uint32_t>(r + offsetof(PDS_PERIPHERAL, press), 0);
+            guest::store<uint32_t>(r + offsetof(PDS_PERIPHERAL, release), 0);
+            edges_primed[port] = true;
+            continue;
+        }
         const uint32_t changed = on ^ old;
         guest::store<uint32_t>(r + offsetof(PDS_PERIPHERAL, press), optimize ? ~changed | on : changed & on);
         guest::store<uint32_t>(r + offsetof(PDS_PERIPHERAL, release), optimize ? ~changed | off : changed & off);

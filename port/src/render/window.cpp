@@ -19,11 +19,11 @@ bool ask_for_disc(std::string& path) {
         bool done = false;
         std::string path;
     } answer;
-    static const SDL_DialogFileFilter kFilters[] = {{"Dreamcast disc image (GDI)", "gdi"}};
+    static const SDL_DialogFileFilter kFilters[] = {{"Dreamcast disc image (GDI or CHD)", "gdi;chd"}};
     const SDL_PropertiesID props = SDL_CreateProperties();
     SDL_SetPointerProperty(props, SDL_PROP_FILE_DIALOG_FILTERS_POINTER, const_cast<SDL_DialogFileFilter*>(kFilters));
     SDL_SetNumberProperty(props, SDL_PROP_FILE_DIALOG_NFILTERS_NUMBER, 1);
-    SDL_SetStringProperty(props, SDL_PROP_FILE_DIALOG_TITLE_STRING, "Choose the Ikaruga disc (.gdi)");
+    SDL_SetStringProperty(props, SDL_PROP_FILE_DIALOG_TITLE_STRING, "Choose the Ikaruga disc (.gdi or .chd)");
     SDL_ShowFileDialogWithProperties(
         SDL_FILEDIALOG_OPENFILE,
         [](void* data, const char* const* files, int) {
@@ -61,14 +61,21 @@ Window::~Window() {
     SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD);
 }
 
-bool Window::open(unsigned scale, const std::string& title, bool scripted, std::string& error) {
+bool Window::open(unsigned scale, const std::string& title, bool scripted, bool gamepads, std::string& error) {
     scripted_ = scripted;
-    if (!SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
+    gamepads_ = gamepads;
+    if (!SDL_InitSubSystem(SDL_INIT_VIDEO | (gamepads ? SDL_INIT_GAMEPAD : 0))) {
         error = std::string("SDL: ") + SDL_GetError();
         return false;
     }
     window_ = SDL_CreateWindow(title.c_str(), 960, 720,
-                               SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_METAL);
+                               SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
+#ifdef __APPLE__
+                                   SDL_WINDOW_METAL
+#else
+                                   SDL_WINDOW_VULKAN
+#endif
+    );
     if (!window_) {
         error = std::string("no window: ") + SDL_GetError();
         return false;
@@ -90,8 +97,7 @@ bool Window::open(unsigned scale, const std::string& title, bool scripted, std::
         return false;
     gpu_->set_anisotropy(graphics_.anisotropy);
     gpu_->set_hud(graphics_.hud);
-    std::printf("window: Metal on %s, drawing at %ux%u\n", gpu_->driver(), 640 * graphics_.scale,
-                480 * graphics_.scale);
+    std::printf("window: %s, drawing at %ux%u\n", gpu_->driver(), 640 * graphics_.scale, 480 * graphics_.scale);
     // The bindings: ours, or on a first run dream-recomp's launcher's, or the defaults.
     bindings_path_ = bindings_path();
     std::string warnings;
@@ -285,8 +291,11 @@ bool Window::present(const Hardware& hw, double guest_seconds) {
                     menu_.capture(Binding{Binding::Source::Axis, e.gaxis.axis, e.gaxis.value < 0 ? -1 : 1});
                 break;
             case SDL_EVENT_GAMEPAD_ADDED:
-                if (SDL_Gamepad* p = SDL_OpenGamepad(e.gdevice.which))
-                    input_.pads.push_back(p);
+                if (gamepads_)
+                    if (SDL_Gamepad* p = SDL_OpenGamepad(e.gdevice.which)) {
+                        std::fprintf(stderr, "input: opened gamepad %s\n", SDL_GetGamepadName(p));
+                        input_.pads.push_back(p);
+                    }
                 break;
             case SDL_EVENT_GAMEPAD_REMOVED:
                 for (auto it = input_.pads.begin(); it != input_.pads.end(); ++it)

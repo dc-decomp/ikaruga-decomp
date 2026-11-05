@@ -1,10 +1,11 @@
 # ikaruga-decomp
 
-A native macOS port of Ikaruga, built from a decompilation of its Dreamcast version (Japan,
-T38706M V1.002). The game's machine code is decompiled into C++, which the build compiles for the
-Mac. A renderer of its own draws the picture with Metal, and SDL3 gives the window, the sound
-output and the controllers. The sound chip, its ARM7 and a few other parts of the console are
-still emulated, by dream-recomp's runtime ([How it works](#how-it-works)).
+A native macOS, Linux and Windows port of Ikaruga, built from a decompilation of its Dreamcast
+version (Japan, T38706M V1.002). The game's machine code is decompiled into C++, which the build
+compiles for the host. A renderer of its own draws the picture with Metal on macOS and Vulkan on
+Linux and Windows, and SDL3 gives the window, the sound output and the controllers. The sound chip,
+its ARM7 and a few other parts of the console are still emulated, by dream-recomp's runtime
+([How it works](#how-it-works)).
 
 This repository holds no disc image, no game code, data or text, no boot ROM and no file of the
 Katana SDK. You supply the disc image of a copy of the game that you own, and the build decompiles
@@ -12,7 +13,7 @@ it on your Mac ([Legal](#legal)).
 
 ## Why this port
 
-* Native playing of Ikaruga on macOS (PC version exists only for Windows)
+* Native playing of Ikaruga on macOS, Linux and Windows (PC version exists only for Windows)
 * Very smooth and solid 60 fps: no jitters, no slowdowns (smoother than on original hardware)
 * Low input latency (16 ms with vsync off, lower than with the original hardware or PC versions)
 * Up to 4K resolution, anisotropic filtering for better texture quality
@@ -29,7 +30,14 @@ The game plays from the boot through all five chapters to the ending, for one or
 the menus, the tutorial and the memory card. The port was built and tested on macOS 26 with an
 Apple M4 Pro, from the Japanese GD-ROM (T38706M, version 1.002).
 The analysis expects this disc's program: other releases, such as the PC, GameCube or Switch
-versions, do not work. The port runs on macOS only, as its renderer draws with Metal.
+versions, do not work. The renderer draws with Metal on macOS and Vulkan on Linux and Windows; the
+launcher and the full game build on both. The macOS build is the one with the longest play testing.
+
+The Linux build passes a 95-second headless run through the title, menu and mode select with no
+crash, and its graphical launcher starts the game from both a GDI and a CHD. The Linux AppImage
+contains that launcher and the game. The Windows build cross-compiles with MinGW-w64; its graphical
+launcher prepares both formats under Wine, and the game still needs a run on Windows hardware to
+check Vulkan presentation.
 
 ## Download
 
@@ -68,10 +76,17 @@ seeds 3,918.
 
 ## Requirements
 
-- macOS with Xcode's command line tools
-- CMake 3.24 or later: `brew install cmake`
+- macOS with Xcode's command line tools, or Linux with GCC/Clang, or Windows with Visual Studio
+  2022 or MinGW-w64
+- CMake 3.24 or later: `brew install cmake` on macOS, `sudo apt install cmake` on Debian/Ubuntu,
+  or the CMake installer on Windows
+- Vulkan on Linux and Windows: the loader, headers and `glslc` (`vulkan-tools` and
+  `glslang-tools` on Debian/Ubuntu, or the Vulkan SDK on Windows). macOS uses Metal and needs none.
 - Ghidra 12.2 and JDK 25: `brew install ghidra` (a newer version than 12.2 might break things and need readjusting)
-- SDL3: `brew install sdl3`
+- SDL3: `brew install sdl3` on macOS, `sudo apt install libsdl3-dev` on Debian/Ubuntu, or the SDL3
+  development package on Windows
+- For the Linux AppImage: `appimagetool` (the build downloads it into `.deps/` if needed),
+  `mksquashfs`, `curl`, and `patchelf`
 - Python 3.10 or later
 - dream-recomp via the submodule `dream-recomp/`: a commit of the `ikaruga-bringup` branch of
   [kjyv's fork](https://github.com/kjyv/dream-recomp). Upstream
@@ -126,13 +141,65 @@ seeds 3,918.
    cmake --build build-port
    ```
 
-The build makes `build-port/Ikaruga.app` and the same program as `build-port/ikaruga`.
+The build makes `build-port/ikaruga` on Linux and Windows, and also `build-port/Ikaruga.app` on
+macOS. It builds `build-port/ikaruga-launcher` at the same time. On Windows, CMake copies
+`SDL3.dll` next to `ikaruga.exe`. The launcher uses SDL3 and a vendored Dear ImGui, so it does not
+need GTK or Qt. The cross-compile toolchain is
+[`port/cmake/toolchain-mingw.cmake`](port/cmake/toolchain-mingw.cmake).
 [docs/development.md](docs/development.md) describes the analysis in more detail, the names and
 types, and the checks for a change.
 
+### Launcher (Linux and Windows)
+
+`ikaruga-launcher` is a graphical launcher. Start it with no arguments, or double-click it, then
+choose your `.gdi` or `.chd` with **Browse...** or by dropping it onto the window. The launch
+options set the window, resolution, frame limit, audio, gamepads, extraction, screenshot, WAV and
+replay settings that are passed to the game. The launcher stores the disc, folders and options in
+`launcher.ini` in SDL's per-user preferences folder (on Linux
+`~/.local/share/ikaruga/ikaruga/launcher.ini`; on Windows
+`%APPDATA%\ikaruga\ikaruga\launcher.ini`). It prepares the disc in the background and minimizes
+itself while the game runs.
+
+A single `.gdi` or `.chd` argument opens the graphical launcher with that disc selected. The same
+program keeps its command-line interface for automation and headless runs:
+
+```sh
+# Linux
+./build-port/ikaruga-launcher --info "ROM/Ikaruga (Japan).chd"
+./build-port/ikaruga-launcher --play "ROM/Ikaruga (Japan).chd"
+./build-port/ikaruga-launcher --play "ROM/Ikaruga v1.002 (2002)(ESP)(JP)[!].gdi"
+
+# Windows (from the port folder)
+build-win\ikaruga-launcher.exe --play "ROM\Ikaruga (Japan).chd"
+```
+
+Without `--play` the launcher prepares and extracts the disc, then stops. Without a disc argument it
+lists the `.gdi` and `.chd` files in `ROM/`, `game/disc/` and `game/prepared/` and asks which one
+to use. `--out DIR` chooses where a CHD is unpacked, `--extract DIR` where the files go, and
+`--no-extract` skips the extraction. Arguments after `--` are passed to the game.
+
+For a gamepad-free or scripted run, pass `--no-gamepads` and `--no-audio` after `--`, for example:
+`ikaruga-launcher --play ROM/game.chd -- --no-gamepads --no-audio`.
+
+### AppImage (Linux)
+
+After the build, package the launcher and the game with SDL3 into one file:
+
+```sh
+cmake --build build-port --target appimage
+./build-port/Ikaruga-x86_64.AppImage
+```
+
+The target runs [`tools/linux/make_appimage.sh`](tools/linux/make_appimage.sh) and writes
+`build-port/Ikaruga-x86_64.AppImage`. It downloads `appimagetool` into `.deps/` if it is not there,
+and bundles the C++ runtime as well as SDL3. The launcher keeps its settings and its prepared disc
+files in the per-user data folder, so the AppImage can run from anywhere and the user supplies the
+disc. If FUSE is unavailable, run it with `APPIMAGE_EXTRACT_AND_RUN=1`.
+
 ## Playing
 
-Start `build-port/Ikaruga.app` from Finder, or `build-port/ikaruga --window` from a terminal.
+Start `build-port/ikaruga-launcher` (or the AppImage) and choose your disc there. On macOS start
+`build-port/Ikaruga.app` from Finder, or start `build-port/ikaruga --window` from a terminal.
 
 A window that is not scripted is a played run. It takes the disc that `--disc` names, else the one
 that `disc.txt` names. Without one, it asks for the disc's `.gdi` in an open dialog and keeps the
@@ -292,6 +359,8 @@ refreshes on the screen is a judder in the scrolling. `IKARUGA_PACING=1` counts 
 | `tools/reference/` | The regression gate for dream-recomp's reference build |
 | `tools/game/` | `stage.py`, which prints a chapter's stage program or a stage script with names |
 | `port/` | The port: guest memory, the machine built from dream-recomp's runtime, the boot ROM's services, Ninja and Kamui, the renderer, the tweaks, the SH-4 interpreter and the differential tests |
+| `port/packaging/` | The launcher's icon and desktop entry, used by the AppImage |
+| `tools/linux/` | The headless test harness and the AppImage builder |
 | `decomp/` | The converted game code. Generated, ignored here, a local repository of its own. |
 | `dream-recomp/` | dream-recomp, a submodule at the commit that this repository builds and runs with |
 | `game/` | The title config, the symbol tables and the game's types. `game/extracted/` holds the disc files. |

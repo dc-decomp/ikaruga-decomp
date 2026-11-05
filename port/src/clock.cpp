@@ -13,8 +13,15 @@ constexpr long long kFrom1950 = (20LL * 365 + 5) * 86400;  // to 1970-01-01, fiv
 undefined4 syRtcAicaGetCount(gptr<uint> count) {
     const std::time_t now = std::time(nullptr);
     std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &now);
+    // tm_gmtoff is a BSD extension; recover the same offset by reading the local fields as UTC.
+    const long long offset = static_cast<long long>(_mkgmtime(&local)) - static_cast<long long>(now);
+#else
     localtime_r(&now, &local);
-    const auto seconds = static_cast<uint32_t>(static_cast<long long>(now) + local.tm_gmtoff + kFrom1950);
+    const long long offset = static_cast<long long>(local.tm_gmtoff);
+#endif
+    const auto seconds = static_cast<uint32_t>(static_cast<long long>(now) + offset + kFrom1950);
     *count = seconds;
     // Shinobi hands each half to its debug record, which is off unless the game turns it on.
     syRtcDbgWriteLog(seconds >> 16);

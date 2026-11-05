@@ -42,7 +42,7 @@ public:
     // read or write graphics.txt and tweaks.txt, and ignores the MOUSE binding, so that the menu's
     // settings do not change a check.
     // A `scale` other than 0 replaces the GRAPHICS page's.
-    bool open(unsigned scale, const std::string& title, bool scripted, std::string& error);
+    bool open(unsigned scale, const std::string& title, bool scripted, bool gamepads, std::string& error);
     void render(const std::vector<uint32_t>& stream, const Hardware& hw);
     // Called with each frame between its translation and its drawing (draw.h), where a mod can read
     // and change the frame's draws and settings.
@@ -102,7 +102,7 @@ private:
     std::vector<uint32_t> last_stream_;  // for F11
     std::map<uint32_t, Frame> frames_;   // the last frame drawn into each framebuffer
     uint32_t newest_ = 0;                // the framebuffer of the last frame
-    bool closed_ = false, show_rate_ = false, scripted_ = false;
+    bool closed_ = false, show_rate_ = false, scripted_ = false, gamepads_ = true;
     bool fullscreen_ = false;  // asked for, or reported by the window
     bool relative_ = false;    // the mouse steers (mouse())
     // Pacing (pace()): the refresh that the next present asks for, how long before it a frame

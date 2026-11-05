@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -50,7 +51,8 @@ bool open(const std::string& gdi_path, std::string& error) {
         error = "cannot read " + gdi_path;
         return false;
     }
-    const std::string dir = gdi_path.find('/') == std::string::npos ? "." : gdi_path.substr(0, gdi_path.rfind('/'));
+    const std::filesystem::path gdi_file(gdi_path);
+    const std::filesystem::path dir = gdi_file.has_parent_path() ? gdi_file.parent_path() : std::filesystem::path(".");
     files.clear();
     int n = 0;
     gdi >> n;
@@ -76,9 +78,9 @@ bool open(const std::string& gdi_path, std::string& error) {
         f.lba = lba;
         f.sector_size = static_cast<uint32_t>(size);
         f.data = type == 4;
-        f.file.open(dir + "/" + name, std::ios::binary);
+        f.file.open(dir / name, std::ios::binary);
         if (!f.file) {
-            error = "cannot read " + dir + "/" + name;
+            error = "cannot read " + (dir / name).string();
             return false;
         }
         files.push_back(std::move(f));

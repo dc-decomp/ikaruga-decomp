@@ -109,7 +109,9 @@ typedef uint16_t ushort;
 typedef uint16_t word;
 typedef uint32_t uint;
 typedef uint32_t dword;
-typedef uint32_t ulong;
+// Ghidra's ulong is the Dreamcast's 32-bit unsigned long. Spell it uint32_t rather than defining
+// `ulong`: glibc already has a 64-bit global typedef of that name, and the generated types would
+// silently pick up the host's width.
 typedef int32_t slong;
 typedef uint64_t qword;
 typedef int64_t longlong;
@@ -305,6 +307,15 @@ struct gptr {
     constexpr gptr(gptr<U> o) : a(o.a) {}
     template <class U>
     gptr(const gref<gptr<U>>& r);
+    // A raw word holding a pointer keeps its bits; without this exact match a C-style cast would
+    // turn the word into a float and use the float constructor.
+    template <class U, class F>
+    gptr(const gref<raw_word<U, F>>& r);
+    // A scalar slot cast to a pointer holds a pointer's bits. Without this exact match a cast of
+    // a signed handler address to a code pointer would pick gptr(float) and round the address.
+    template <class U, std::enable_if_t<(std::is_arithmetic_v<U> || std::is_enum_v<U>) &&
+                                            sizeof(U) <= 4, int> = 0>
+    gptr(const gref<U>& r) : a(guest::load<uint32_t>(r.a)) {}
     // `&local` and `&global` in the decompiled code are host pointers into guest memory.
     template <class U>
     gptr(U* host) : a(host ? guest::address_of(host) : 0) {}
@@ -513,7 +524,7 @@ struct gref {
         // show as (int) before the pointer cast.
         else if constexpr (is_gptr<X>::value && std::is_same_v<T, float>)
             return X(guest::load<uint32_t>(a));
-        else if constexpr (is_gptr<X>::value && std::is_arithmetic_v<T>)
+        else if constexpr (is_gptr<X>::value && (std::is_arithmetic_v<T> || is_raw_word_v<T>))
             return X(static_cast<uint32_t>(static_cast<T>(*this)));
         else
             return (X) static_cast<T>(*this);
@@ -627,6 +638,9 @@ struct gref<code> {
 template <class T>
 template <class U>
 gptr<T>::gptr(const gref<gptr<U>>& r) : a(guest::load<uint32_t>(r.a)) {}
+template <class T>
+template <class U, class F>
+gptr<T>::gptr(const gref<raw_word<U, F>>& r) : a(guest::load<uint32_t>(r.a)) {}
 
 template <class T>
 template <class... A>

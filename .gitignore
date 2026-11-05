@@ -56,3 +56,12 @@ __pycache__/
 # local repository and never committed here.
 /decomp/
 /build-port/
+
+# Local build dependencies (SDL3, Ghidra, JDK, libchdr)
+/.deps/
+
+# Launcher-prepared discs and extracted files
+game/prepared/
+
+# The user's own disc dumps
+/ROM/
