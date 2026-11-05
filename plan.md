@@ -81,6 +81,8 @@ Tools, all going through `tools/linux/headless_run.sh` or needing no game window
 - Harness fixes: a dead Xvfb's lock no longer blocks a display, `EXTRA=` now overrides the conf, and
   `RUN_ENV="A=1"` passes game variables.
 
+**Decision (2026-11-05): no Mac is available, so dream-recomp's renderer is the reference; "exact" means pixel-close to it.**
+
 Reference caveat: dream-recomp's renderer is the lineage the Metal one came from, not Metal. Exact
 Metal parity still needs `render-view` run on a Mac against the same `.ta` dumps (they hold game data,
 so they stay out of the repository). Until then dream's pictures are the working reference.

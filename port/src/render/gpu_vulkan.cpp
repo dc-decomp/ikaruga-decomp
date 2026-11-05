@@ -446,7 +446,8 @@ struct Gpu::Impl {
         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.image = image;
-        barrier.subresourceRange = {aspect, 0, 1, 0, 1};
+        // Every mip level: a texture's lower levels stay UNDEFINED otherwise, and sampling them is invalid.
+        barrier.subresourceRange = {aspect, 0, VK_REMAINING_MIP_LEVELS, 0, 1};
         barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT |
                                 VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT |
@@ -1085,7 +1086,7 @@ void Gpu::Impl::encode() {
                 else if (d.translucent)
                     p = list_pipeline(translucent_pipelines, fs_translucent, d.depth, d.depth);
                 else
-                    p = pipeline(d.pipeline);
+                    p = pipeline(d.pipeline | d.depth << 6);  // blend in bits 0-5, depth compare and write above
                 if (p == VK_NULL_HANDLE)
                     continue;
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, p);
