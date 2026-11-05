@@ -103,6 +103,30 @@ Remaining difference after A, on frames 700, 3000, 9500 and 30000 (141k to 300k 
 - The mode-select box is clipped at x = 320 (half the width).
 - The menu's backdrop and highlight glow are missing.
 
+### Phase B: progress (2026-11-05)
+
+Pixels that differ by more than 6% from the reference, on frames 700, 3000, 9500, 30000 (of 307200):
+
+| Step | f700 | f3000 | f9500 | f30000 |
+|---|---|---|---|---|
+| Start of B (after A) | 299758 | 172486 | 155294 | 141013 |
+| Opaque strips' depth compare (key lacked the depth bits) | 28867 | 163053 | 20347 | 32865 |
+| Adding strips' one/one blend | 13129 | 100669 | 13382 | 14336 |
+| Pre-sort pass ran added_top instead of added | 4417 | 5897 | 6448 | 5795 |
+
+Also fixed: image barriers covered only mip level 0. In-window smoke (stage 1, title, menus): 0 crash
+lines, 0 pads, the picture matches the reference by eye.
+
+Still open in B:
+- B1 tail: the remaining 2% (edges? filtering? bloom is off in render-view); find what differs with a
+  per-pixel diff image, and check more frames (every stage, bosses, the ending, the ranking screens).
+- Validation at shutdown: `VUID-vkDestroyDevice-device-05137` (a leaked object); the windowless swap pass
+  asks for PRESENT_SRC without the swapchain extension (`make_swap_pass`).
+- The unused `families` variable in `Gpu::create` (compiler warning).
+- B6 (bloom, 2x and 4x scales, fullscreen) and B7 (lavapipe) are untouched.
+- The title's cover page looks pale (frame 30 in the smoke run): check it against the reference with a
+  dump from frame about 400 (`render_set.sh`) before calling it a bug.
+
 ### Phase B: fix the Vulkan renderer (one fix at a time, each checked against the reference)
 - B1. Run with `VK_LAYER_KHRONOS_validation` and clear every validation error first.
 - B2. Depth: fix the stage geometry (suspect 1). Re-check `smoke_1_end.png`.
