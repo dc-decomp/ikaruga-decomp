@@ -43,7 +43,7 @@ namespace {
 constexpr size_t kFbRSof1 = 0x050 / 4;
 
 // Defined below, beside the swapchain code.
-VkRenderPass make_swap_pass(VkDevice device, VkFormat format);
+VkRenderPass make_swap_pass(VkDevice device, VkFormat format, VkImageLayout final_layout);
 
 // The shaders' structures (shaders/*.glsl).
 struct Screen {
@@ -1244,7 +1244,7 @@ void Gpu::Impl::create_swapchain() {
         // No window: no swapchain, but the pipelines that the render paths build against swap_pass.
         if (!swap_pass) {
             swap_format = VK_FORMAT_B8G8R8A8_UNORM;
-            swap_pass = make_swap_pass(device, swap_format);
+            swap_pass = make_swap_pass(device, swap_format, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
             swap_pass_format = swap_format;
         }
         return;
@@ -1300,7 +1300,7 @@ void Gpu::Impl::create_swapchain() {
         if (overlay) vkDestroyPipeline(device, overlay, nullptr);
         present = overlay = VK_NULL_HANDLE;
         if (swap_pass) vkDestroyRenderPass(device, swap_pass, nullptr);
-        swap_pass = make_swap_pass(device, swap_format);
+        swap_pass = make_swap_pass(device, swap_format, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
         swap_pass_format = swap_format;
         if (swap_pass && vs_present && fs_present && present_pipeline_layout) {
             present = build(vs_present, fs_present, swap_pass, present_pipeline_layout, false, false, false,
@@ -1364,7 +1364,7 @@ void Gpu::Impl::destroy_swapchain() {
 namespace {
 
 // A render pass for the swapchain: its image starts undefined and ends as the present source.
-VkRenderPass make_swap_pass(VkDevice device, VkFormat format) {
+VkRenderPass make_swap_pass(VkDevice device, VkFormat format, VkImageLayout final_layout) {
     VkAttachmentDescription colour{};
     colour.format = format;
     colour.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -1373,7 +1373,7 @@ VkRenderPass make_swap_pass(VkDevice device, VkFormat format) {
     colour.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     colour.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     colour.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    colour.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    colour.finalLayout = final_layout;
     VkAttachmentReference ref{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
     VkSubpassDescription subpass{};
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
@@ -1570,7 +1570,6 @@ bool Gpu::create(SDL_Window* window, unsigned scale, std::string& error) {
     vkGetPhysicalDeviceFeatures(m.physical, &features);
     m.sampler_anisotropy = features.samplerAnisotropy == VK_TRUE;
 
-    const uint32_t families[2] = {m.graphics_family, m.present_family};
     const float priority = 1.0f;
     VkDeviceQueueCreateInfo queues[2]{};
     queues[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
@@ -1735,10 +1734,14 @@ bool Gpu::create(SDL_Window* window, unsigned scale, std::string& error) {
 
     m.sort = m.build(m.vs_present, m.fs_sort, m.sort_pass, m.sort_pipeline_layout, false, false, false,
                      VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO, VK_COMPARE_OP_ALWAYS, false, true);
-    m.present = m.build(m.vs_present, m.fs_present, m.swap_pass, m.present_pipeline_layout, false, false, false,
-                        VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO, VK_COMPARE_OP_ALWAYS, false, true);
-    m.overlay = m.build(m.vs_present, m.fs_present, m.swap_pass, m.present_pipeline_layout, false, false, true,
-                        VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, VK_COMPARE_OP_ALWAYS, false, true);
+    // create_swapchain() builds these two for a window; a run without one builds them here.
+    if (!m.present)
+        m.present = m.build(m.vs_present, m.fs_present, m.swap_pass, m.present_pipeline_layout, false, false, false,
+                            VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO, VK_COMPARE_OP_ALWAYS, false, true);
+    if (!m.overlay)
+        m.overlay = m.build(m.vs_present, m.fs_present, m.swap_pass, m.present_pipeline_layout, false, false, true,
+                            VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, VK_COMPARE_OP_ALWAYS, false,
+                            true);
     m.bloom_extract = m.build(m.vs_present, m.fs_bloom_extract, m.glow_pass, m.composite_pipeline_layout, false,
                               false, false, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO, VK_COMPARE_OP_ALWAYS, false,
                               true);

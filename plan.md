@@ -117,7 +117,14 @@ Pixels that differ by more than 6% from the reference, on frames 700, 3000, 9500
 Also fixed: image barriers covered only mip level 0. In-window smoke (stage 1, title, menus): 0 crash
 lines, 0 pads, the picture matches the reference by eye.
 
-Still open in B:
+Wider set (2026-11-05, after the three fixes; differing pixels of 307200): f400 1345, f1500 12548,
+f42000 6952, f60000 9038, f85000 4416, f107000 6028, plus the four above. Covers the title, the
+mode select, stage 1 and later stages with bosses, and the name entry. By eye, no missing or misplaced
+feature. A heat map of the remainder shows only one-pixel edge outlines (the reference renders at
+960x720 and is resampled), so B1's tail is closed. Validation is clean in `render-view` and in a
+60 s windowed run; the leaked present/overlay pipelines and the windowless PRESENT_SRC layout are fixed.
+
+Still open in B (the first three items are done: B1 tail, validation, warning):
 - B1 tail: the remaining 2% (edges? filtering? bloom is off in render-view); find what differs with a
   per-pixel diff image, and check more frames (every stage, bosses, the ending, the ranking screens).
 - Validation at shutdown: `VUID-vkDestroyDevice-device-05137` (a leaked object); the windowless swap pass
