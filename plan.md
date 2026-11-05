@@ -131,6 +131,10 @@ does, instead of dropping them ("no scaled picture"); `--scale 4 --rescale 1` is
 307200 pixels, so the picture does not depend on the driver. Fullscreen and the desktop's own
 compositor are not testable headless.
 
+C0 and C1 (AGENTS.md): pass on 2026-11-05 with the renderer fixes (smoke run, then five 120 s runs under
+gdb: 0 crash lines, 0 real pads). One end-of-run screenshot shows the Chapter 1 intro with half the panel
+darkened; it looks like a wipe in progress but is unverified against a reference.
+
 Still open in B (done: B1 tail, validation, warning, B6 except fullscreen, B7 on Linux):
 - B1 tail: the remaining 2% (edges? filtering? bloom is off in render-view); find what differs with a
   per-pixel diff image, and check more frames (every stage, bosses, the ending, the ranking screens).

@@ -35,8 +35,8 @@ Look at the PNGs in `/tmp/ikaruga-headless-$USER-91/out`, not only the crash tal
 
 | ID | What | Last result |
 |---|---|---|
-| C0 | Boots to the title with 0 crash lines and no real pad | pending |
-| C1 | Stable over repeated runs | pending |
+| C0 | Boots to the title with 0 crash lines and no real pad | pass 2026-11-05 (smoke through title, menu, stage 1) |
+| C1 | Stable over repeated runs | pass 2026-11-05: 5 x 120 s under gdb, 0 crashes, 0 pads |
 | C2 | Soak | pending |
 | C3 | Performance | pending |
 | C4 | User sign-off | pending |
