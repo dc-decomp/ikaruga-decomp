@@ -1,7 +1,11 @@
 #include "render/english_textures.h"
 
+#ifdef __APPLE__
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
+#else
+#include "render/stb_text.h"
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -353,6 +357,7 @@ const Patch* find(uint64_t hash) {
     return nullptr;
 }
 
+#ifdef __APPLE__
 CTFontRef font(float size, bool bold = false) {
     return CTFontCreateWithName(bold ? CFSTR("HiraMinProN-W6") : CFSTR("HiraMinProN-W3"), size, nullptr);
 }
@@ -402,6 +407,16 @@ std::vector<uint8_t> line(const char* utf8, float size, uint32_t width, uint32_t
     CFRelease(text);
     return grey;
 }
+#else
+// The same line with stb_truetype: the English textures use the same system font as the overlay and
+// the game's 24-dot font.
+std::vector<uint8_t> line(const char* utf8, float size, uint32_t width, uint32_t height, bool left = false,
+                          bool bold = false) {
+    std::vector<uint8_t> grey;
+    stbtext::line(utf8, size, width, height, left, bold, grey);
+    return grey;
+}
+#endif
 
 // A soft halo under the letters, as the motto's picture has.
 void glow(std::vector<uint8_t>& grey, uint32_t width, uint32_t height) {
@@ -429,6 +444,7 @@ void clear(const Rect& r, uint32_t width, uint32_t height, std::vector<uint32_t>
         for (uint32_t x = r.x; x < std::min(r.x + r.w, width); ++x) rgba[y * width + x] = 0;
 }
 
+#ifdef __APPLE__
 double measure(const std::string& utf8, float size, bool bold = false) {
     CFStringRef text = CFStringCreateWithCString(nullptr, utf8.c_str(), kCFStringEncodingUTF8);
     if (!text)
@@ -448,6 +464,11 @@ double measure(const std::string& utf8, float size, bool bold = false) {
     CFRelease(text);
     return w;
 }
+#else
+double measure(const std::string& utf8, float size, bool bold = false) {
+    return stbtext::measure(utf8.c_str(), size, bold);
+}
+#endif
 
 // The paragraph's lines at `size`, `pitch` texels apart: beside the right piece as wide as the block
 // and the piece together. None when the text does not fit.

@@ -25,6 +25,11 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
 ghidra=${GHIDRA_HOME:-/opt/homebrew/opt/ghidra/libexec}
 language=${GHIDRA_LANGUAGE:-SuperH4:LE:32:katana}
+case "$(uname -s)" in
+  Darwin) ghidra_settings=$root/ghidra/home/Library/ghidra ;;
+  MINGW*|MSYS*|CYGWIN*) ghidra_settings=$root/ghidra/home/AppData/Roaming/ghidra ;;
+  *) ghidra_settings=$root/ghidra/home/.config/ghidra ;;
+esac
 binary=$root/game/extracted/fs/1ST_READ.BIN
 translate=${DREAM_TRANSLATE:-$root/dream-recomp/build/translator/dream-translate}
 sdk_header=${SDK_HEADER:-$root/game/sdk.h}
@@ -43,7 +48,7 @@ export JAVA_TOOL_OPTIONS="-Duser.home=$root/ghidra/home -Djava.io.tmpdir=$root/g
 mkdir -p "$project" "$out" "$root/ghidra/home" "$root/ghidra/tmp"
 # Each Ghidra version has its own settings directory, so a new version needs the language again.
 properties=$ghidra/Ghidra/application.properties
-settings=$root/ghidra/home/Library/ghidra/ghidra_$(sed -n 's/^application.version=//p' "$properties")_$(sed -n 's/^application.release.name=//p' "$properties")
+settings=$ghidra_settings/ghidra_$(sed -n 's/^application.version=//p' "$properties")_$(sed -n 's/^application.release.name=//p' "$properties")
 if [ "$language" = SuperH4:LE:32:katana ] \
     && ! ls "$settings"/Extensions/SuperH4Katana/data/languages/*.sla >/dev/null 2>&1; then
   "$root/tools/ghidra/build_language.py"

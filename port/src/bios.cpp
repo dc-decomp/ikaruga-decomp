@@ -3,7 +3,9 @@
 // wrappers are replaced here (port/replaced.txt), so no boot ROM code is needed; the font is read
 // from a boot ROM image when the user supplies one. The GD-ROM drive's wrappers are not reached:
 // the game's file system is native (files.cpp).
+#ifndef _WIN32
 #include <execinfo.h>
+#endif
 
 #include <cstdio>
 #include <cstdlib>
@@ -159,10 +161,14 @@ int syBtFlDeleteSct(uint offset) {
 
 void syBtExit() {
     diff::guard("exits");
+#ifndef _WIN32
     void* frames[32];
     const int n = backtrace(frames, 32);
     std::fprintf(stderr, "syBtExit called from:\n");
     backtrace_symbols_fd(frames, n, 2);
+#else
+    std::fprintf(stderr, "syBtExit called\n");
+#endif
     throw ExitRequested{};
 }
 Sint32 syBtCheckDisc() { return 0; }

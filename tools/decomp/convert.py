@@ -51,7 +51,7 @@ CODE_END = 0x8C0CA2F4
 # Ghidra's names for primitive types, as the port's runtime spells them (guest.h typedefs most).
 PRIMITIVE = {
     "void": "void", "char": "char", "short": "short", "int": "int", "long": "int32_t",
-    "uchar": "uchar", "ushort": "ushort", "uint": "uint", "ulong": "ulong", "float": "float",
+    "uchar": "uchar", "ushort": "ushort", "uint": "uint", "ulong": "uint32_t", "float": "float",
     "double": "double", "bool": "bool", "byte": "byte", "word": "word", "dword": "dword",
     "qword": "qword", "longlong": "longlong", "ulonglong": "ulonglong", "sbyte": "int8_t",
     "schar": "signed char", "wchar_t": "wchar16", "wchar16": "wchar16", "float10": "float10",
@@ -89,6 +89,10 @@ def doc_lines(comment: str) -> list[str]:
 
 
 def cpp_ident(name: str) -> str:
+    # MinGW's errno is (*_errno()), and the game has a global called _errno. Rename it so the
+    # generated headers do not replace the CRT function with a guest-memory reference.
+    if name == "_errno":
+        return "ikaruga__errno"
     out = re.sub(r"[^A-Za-z0-9_]", "_", name)
     return "_" + out if out[:1].isdigit() else out
 

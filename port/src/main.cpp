@@ -1,10 +1,13 @@
 // The native port's entry point: loads the game into guest memory, prepares what the boot ROM would
 // have left behind, and runs the decompiled game from its own entry point.
+#ifndef _WIN32
 #include <execinfo.h>
 #include <signal.h>
 #include <unistd.h>
+#endif
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -26,12 +29,19 @@
 #include "frame.h"
 #include "game_tweaks.h"
 #include "hw.h"
+#include "perf.h"
 #include "render/activity.h"
 #include "render/audio.h"
 #include "render/settings.h"
 #include "render/window.h"
 #include "saves.h"
 #include "sh4/sh4.h"
+
+#ifdef _WIN32
+// Included after the decomp: windows.h defines VOID as a macro, which would rewrite the generated
+// `typedef void VOID` into `typedef void void`. The game headers do not use windows.h.
+#include <windows.h>
+#endif
 
 namespace bios {
 void install_vectors();
@@ -70,7 +80,7 @@ void usage() {
     std::fprintf(stderr,
                  "usage: ikaruga [options]\n"
                  "  --disc FILE.gdi   the disc (default for a window that is not scripted the one it asked for,\n"
-                 "                    else game/disc/Ikaruga (Japan).gdi)\n"
+                 "                    else game/disc/disc.gdi)\n"
                  "  --boot FILE       1ST_READ.BIN, descrambled (default the disc's)\n"
                  "  --bios FILE       a boot ROM image, for the system font (optional: else macOS's Hiragino)\n"
                  "  --saves DIR       the memory card's files (default saves, or for a window that is not\n"
@@ -79,6 +89,10 @@ void usage() {
                  "  --window          open a window: picture, sound, keyboard and gamepad, at the\n"
                  "                    console's speed\n"
                  "  --unthrottled     with --window, run as fast as possible\n"
+                 "  --fullscreen      with --window, start in fullscreen (the menu's FULLSCREEN row too)\n"
+                 "  --tate MODE       with --window, how the picture turns for a monitor stood on its side:\n"
+                 "                    auto (a window taller than wide turns it), off, left or right. It turns\n"
+                 "                    only while the game is on its VERTICAL SCREEN option\n"
                  "  --scale N         draw at N times 640x480 (default: the menu's GRAPHICS page, 2 at\n"
                  "                    first)\n"
                  "  --screenshot-at LIST write the frames drawn at these frames (300,800) to --screenshot-path\n"
@@ -88,6 +102,7 @@ void usage() {
                  "                    controller, which the run then has\n"
                  "  --wav FILE        record the sound as 16-bit stereo at 44.1 kHz\n"
                  "  --no-audio        play no sound in the window\n"
+                 "  --no-gamepads     never open a gamepad, for scripted or headless runs\n"
                  "  --record-input FILE  write the controller state of every frame where it changes\n"
                  "  --replay-input FILE  play such a recording back instead of the controls; the format\n"
                  "                    is dream-recomp's, so a recording from the reference build works\n");
@@ -96,6 +111,7 @@ void usage() {
 }  // namespace
 
 // A crash in the decompiled code prints where it happened.
+#ifndef _WIN32
 void on_crash(int sig) {
     void* frames[64];
     const int n = backtrace(frames, 64);
@@ -105,8 +121,19 @@ void on_crash(int sig) {
     backtrace_symbols_fd(frames, n, STDERR_FILENO);
     _exit(128 + sig);
 }
+#else
+LONG WINAPI on_crash(EXCEPTION_POINTERS* info) {
+    trace::print(stderr, 60);
+    trace::print_stack(stderr);
+    std::fprintf(stderr, "exception %08lx at %p\n", info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionCode : 0ul,
+                 info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionAddress : nullptr);
+    std::fflush(stderr);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+#endif
 
 int main(int argc, char** argv) {
+#ifndef _WIN32
     // On its own stack, so that a stack overflow still reports.
     static char alt[1 << 16];
     stack_t ss{};
@@ -119,14 +146,18 @@ int main(int argc, char** argv) {
     sigaction(SIGSEGV, &sa, nullptr);
     sigaction(SIGBUS, &sa, nullptr);
     sigaction(SIGABRT, &sa, nullptr);
-    std::string disc = "game/disc/Ikaruga (Japan).gdi", boot, saves_dir;
+#else
+    SetUnhandledExceptionFilter(on_crash);
+#endif
+    std::string disc = "game/disc/disc.gdi", boot, saves_dir;
     bool disc_given = false;
     std::string bios_rom;
     uint64_t max_frames = 0;
     std::vector<uint64_t> screenshots;
-    bool window = false, unthrottled = false, audio = true;
+    bool window = false, unthrottled = false, audio = true, gamepads = true;
     std::string wav_path;
-    int scale = 0;
+    int scale = 0, tate = -1;
+    bool fullscreen = false;
     std::string screenshot_path = "ikaruga.ppm";
     struct Press {
         uint64_t from, until;
@@ -157,6 +188,19 @@ int main(int argc, char** argv) {
         else if (a == "--window") window = true;
         else if (a == "--unthrottled") unthrottled = true;
         else if (a == "--scale") scale = std::atoi(next().c_str());
+        else if (a == "--fullscreen") fullscreen = true;
+        else if (a == "--tate") {
+            const std::string mode = next();
+            const char* const names[] = {"auto", "off", "left", "right"};
+            tate = -1;
+            for (int i = 0; i < 4; ++i)
+                if (mode == names[i])
+                    tate = i;
+            if (tate < 0) {
+                std::fprintf(stderr, "ikaruga: --tate takes auto, off, left or right\n");
+                return 2;
+            }
+        }
         else if (a == "--screenshot-at") {
             const std::string list = next();
             for (const char* p = list.c_str(); *p;) {
@@ -197,6 +241,7 @@ int main(int argc, char** argv) {
         else if (a == "--record-input") record_path = next();
         else if (a == "--replay-input") replay_path = next();
         else if (a == "--no-audio") audio = false;
+        else if (a == "--no-gamepads") gamepads = false;
         else if (a.rfind("-psn_", 0) == 0) continue;  // the process serial number older macOS passes
         else {
             std::fprintf(stderr, "ikaruga: unknown option %s\n", a.c_str());
@@ -314,12 +359,18 @@ int main(int argc, char** argv) {
         // METAL HUD then shows or hides it (render/gpu.h). Not in a scripted run, whose output it
         // would fill with its notes.
         if (!scripted_run) {
+#ifdef __APPLE__
             setenv("MTL_HUD_ENABLED", "1", 0);
             setenv("MTL_HUD_DISABLE_MENU_BAR", "1", 0);  // the menu's row switches it, not the menu bar's
+#endif
             hw::second_pad() = true;
         }
         screen = std::make_unique<render::Window>();
-        if (!screen->open(static_cast<unsigned>(scale), "Ikaruga", scripted_run, error)) {
+        screen->start_fullscreen(fullscreen);
+        screen->start_tate(tate);
+        // screenHorizontal: 0 while the game is on its vertical screen (docs/game.md).
+        screen->vertical_screen = [] { return guest::load<uint8_t>(0x8C1CB150u) == 0; };
+        if (!screen->open(static_cast<unsigned>(scale), "Ikaruga", scripted_run, gamepads, error)) {
             std::fprintf(stderr, "window: %s\n", error.c_str());
             return 2;
         }
@@ -573,8 +624,33 @@ int main(int argc, char** argv) {
     const bool autoplay = std::getenv("IKARUGA_AUTOPLAY") != nullptr;
     bool autoplay_in_stage = false;
     const render::Tweaks env_tweaks = tweaks::from_environment();
+    // IKARUGA_PERF: the time from the end of the last frame hook to the start of this one is the game's
+    // own code and its render, which the counters in perf.h split. A frame that took longer than
+    // 10 ms there is printed, with the hook's own time (the picture, the pacing's sleep excluded).
+    perf::Clock::time_point perf_hook_end = perf::Clock::now();
+    uint64_t perf_sectors = 0;
     hw::on_vblank([&] {
         const uint64_t frame = hw::frames();
+        const perf::Clock::time_point perf_hook_start = perf::Clock::now();
+        if (perf::on()) {
+            const double guest_ms = std::chrono::duration<double, std::milli>(perf_hook_start - perf_hook_end).count();
+            perf::Frame& f = perf::frame();
+            const uint64_t sectors = hw::stats().gd_sectors - perf_sectors;
+            perf_sectors = hw::stats().gd_sectors;
+            if (guest_ms > 10.0)
+                std::fprintf(stderr,
+                             "perf: frame %llu took %.1f ms: render %.1f (decode %.1f, upload %.1f, hash %.1f, create %.1f; "
+                             "%llu textures, %llu uploads, %.1f MB; %llu pipelines %.1f ms), other %.1f, %llu disc sectors\n",
+                             static_cast<unsigned long long>(frame), guest_ms, f.render_ms, f.decode_ms, f.upload_ms,
+                             f.hash_ms, f.create_ms, static_cast<unsigned long long>(f.decoded),
+                             static_cast<unsigned long long>(f.uploads), static_cast<double>(f.bytes) / 1048576.0,
+                             static_cast<unsigned long long>(f.pipelines), f.pipeline_ms, guest_ms - f.render_ms, static_cast<unsigned long long>(sectors));
+            f = perf::Frame{};
+        }
+        struct HookEnd {
+            perf::Clock::time_point& at;
+            ~HookEnd() { at = perf::Clock::now(); }
+        } hook_end{perf_hook_end};
         if (!dump_dir.empty() && std::find(dump_frames.begin(), dump_frames.end(), frame) != dump_frames.end()) {
             const std::string path = dump_dir + "/ram-" + std::to_string(frame) + ".bin";
             if (std::FILE* f = std::fopen(path.c_str(), "wb")) {
@@ -719,12 +795,14 @@ int main(int argc, char** argv) {
         if (max_frames && frame >= max_frames) {
             trace::print_stack(stdout);
             sh4::report(stdout);
+#ifndef _WIN32
             if (std::getenv("IKARUGA_BACKTRACE")) {
                 void* frames[64];
                 const int n = backtrace(frames, 64);
                 std::fflush(stdout);
                 backtrace_symbols_fd(frames, n, STDOUT_FILENO);
             }
+#endif
             throw StopRun{"frame limit"};
         }
     });

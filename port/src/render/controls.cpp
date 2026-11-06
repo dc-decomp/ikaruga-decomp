@@ -3,6 +3,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <tuple>
 #include <fstream>
 #include <iterator>
 #include <sstream>
@@ -249,6 +250,11 @@ void Input::update(bool enabled) {
     }
 }
 
+namespace {
+// How far a stick goes, from the edge of its dead zone to full, to press its direction's button.
+constexpr float kStickDigital = 0.25f;
+}  // namespace
+
 Controls Input::controls(unsigned player) const {
     Controls c;
     const std::pair<Pad, uint16_t> buttons[] = {
@@ -258,6 +264,17 @@ Controls Input::controls(unsigned player) const {
     };
     for (const auto& [pad, bit] : buttons)
         if (value(player, pad) > 0.0f)
+            c.held |= bit;
+    // The game steers by the controller's direction buttons alone: it never reads the stick's
+    // position (Shinobi's records hold it, and no code of the game looks at it). A stick pushed
+    // past kStickDigital, measured from the dead zone's edge, presses its direction's button, so
+    // that the stick moves the ship and the menu's cursor as the pad does.
+    const std::tuple<Pad, uint16_t> stick[] = {
+        {Pad::StickUp, kButtonUp}, {Pad::StickDown, kButtonDown}, {Pad::StickLeft, kButtonLeft},
+        {Pad::StickRight, kButtonRight},
+    };
+    for (const auto& [axis_pad, bit] : stick)
+        if (value(player, axis_pad) > kStickDigital)
             c.held |= bit;
     auto byte = [](float v) { return static_cast<uint8_t>(std::clamp(128.0f + v * 127.0f, 0.0f, 255.0f)); };
     c.stick_x = byte(value(player, Pad::StickRight) - value(player, Pad::StickLeft));

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Ikaruga
+Comment=Launch Ikaruga from your own GDI or CHD dump
+Exec=ikaruga-launcher
+Icon=ikaruga
+Terminal=false
+Categories=Game;
+Keywords=Ikaruga;Dreamcast;shmup;launcher;
+StartupNotify=true
