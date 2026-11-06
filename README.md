@@ -260,7 +260,7 @@ The GRAPHICS page changes only the picture. Its settings go to `graphics.txt`:
 | FULLSCREEN | ON or OFF. The window's green button and Control-Command-F change it too. `--fullscreen` starts one run in fullscreen, and so does the launcher's Fullscreen box. |
 | TATE (ROTATED MONITOR) | AUTO, OFF, LEFT or RIGHT: how the picture turns for a monitor stood on its side. See [Tate](#tate-a-rotated-monitor). |
 | VSYNC | OFF or ON, OFF at first. Off works only in fullscreen: the window server then shows each picture at once, without waiting for the display's refresh. That takes about 21 ms off the latency, and the picture can tear: a horizontal line where two pictures meet, for one refresh. At 120 Hz the two pictures differ by one frame of scrolling, and the line is hard to see. In a window the window server waits for the refresh anyway. |
-| METAL HUD | ON or OFF. Metal's performance HUD in a corner of the window: the frame rate, the frame times and the GPU's time. |
+| METAL HUD | macOS only. ON or OFF. Metal's performance HUD in a corner of the window: the frame rate, the frame times and the GPU's time. |
 
 At 60 Hz or 120 Hz the display paces the game, so that the scrolling stays smooth. Each frame stays
 on the screen for one refresh at 60 Hz and for two at 120 Hz. The game then runs at 60.00 frames a

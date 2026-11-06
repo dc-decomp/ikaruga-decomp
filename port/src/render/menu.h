@@ -52,9 +52,14 @@ private:
                          kRamp = kDeadzone + 1, kMouseOrPad = kRamp + 1, kDone = kMouseOrPad + 1,
                          kControllerRows = kDone + 1;
     // The graphics page's rows: the resolution, the bloom, the anisotropic filtering, fullscreen,
-    // the monitor's rotation (tate), vsync, Metal's HUD, and BACK.
+    // the monitor's rotation (tate), vsync, Metal's HUD, and BACK. Only Metal has a HUD, so the row
+    // is on macOS only: elsewhere kHud matches no row.
     static constexpr int kScale = 0, kBloom = 1, kAnisotropy = 2, kFullscreen = 3, kTate = 4, kVsync = 5,
+#ifdef __APPLE__
                          kHud = 6, kGraphicsBack = 7, kGraphicsRows = 8;
+#else
+                         kHud = -1, kGraphicsBack = 6, kGraphicsRows = 7;
+#endif
     // The tweaks page's rows: one for each switch (kTweakRows in menu.cpp), and BACK.
     static constexpr int kTweaksBack = 8, kTweaksRows = 9;
 
