@@ -27,6 +27,7 @@ struct Frame {
     double decode_ms = 0;    // texture decode (CPU)
     double upload_ms = 0;    // texture uploads, including their waits for the GPU
     double hash_ms = 0;      // texture change detection
+    double create_ms = 0;    // images and views made for textures the cache had not seen
     double pipeline_ms = 0;  // pipelines built the first time a draw needs them
     uint64_t pipelines = 0;
     uint64_t renders = 0;

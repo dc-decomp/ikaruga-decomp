@@ -639,10 +639,10 @@ int main(int argc, char** argv) {
             perf_sectors = hw::stats().gd_sectors;
             if (guest_ms > 10.0)
                 std::fprintf(stderr,
-                             "perf: frame %llu took %.1f ms: render %.1f (decode %.1f, upload %.1f, hash %.1f; "
+                             "perf: frame %llu took %.1f ms: render %.1f (decode %.1f, upload %.1f, hash %.1f, create %.1f; "
                              "%llu textures, %llu uploads, %.1f MB; %llu pipelines %.1f ms), other %.1f, %llu disc sectors\n",
                              static_cast<unsigned long long>(frame), guest_ms, f.render_ms, f.decode_ms, f.upload_ms,
-                             f.hash_ms, static_cast<unsigned long long>(f.decoded),
+                             f.hash_ms, f.create_ms, static_cast<unsigned long long>(f.decoded),
                              static_cast<unsigned long long>(f.uploads), static_cast<double>(f.bytes) / 1048576.0,
                              static_cast<unsigned long long>(f.pipelines), f.pipeline_ms, guest_ms - f.render_ms, static_cast<unsigned long long>(sectors));
             f = perf::Frame{};

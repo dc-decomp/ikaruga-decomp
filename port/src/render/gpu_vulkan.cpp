@@ -871,9 +871,12 @@ struct Gpu::Impl {
             t.width = f.width;
             t.height = f.height;
             t.levels = f.levels();
+            const perf::Clock::time_point creating = perf::Clock::now();
             image(t.width, t.height, t.levels, VK_FORMAT_R8G8B8A8_UNORM,
                   VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, t.image, t.memory);
             t.view = view(t.image, VK_FORMAT_R8G8B8A8_UNORM);
+            if (perf::on())
+                perf::frame().create_ms += perf::ms_since(creating);
             if (!t.image)
                 return without("Vulkan has no room for it");
         }
