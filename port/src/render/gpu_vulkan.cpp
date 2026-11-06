@@ -1918,6 +1918,11 @@ void Gpu::present(const Hardware& hw, double refresh, bool white, double mark) {
     if (!m.window || !m.device)
         return;
     m.wait();
+    // Present takes descriptor sets of its own (the picture, the bloom, the overlay), and a game that
+    // stops draws no frame whose render would reset the pool: with the menu open, the pool ran dry
+    // in about twenty seconds. The last render has finished (wait() above) and the last present
+    // went idle, so no set is in use.
+    vkResetDescriptorPool(m.device, m.descriptor_pool, 0);
     if (!m.swapchain)
         m.create_swapchain();
     if (!m.swapchain)

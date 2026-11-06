@@ -217,6 +217,11 @@ rotated ("tate") monitors must be supported.
   rest. Checked with an SDL software gamepad (no real pad): off at 4000, on at 12000+, diagonals.
   Not checked: the feel on a real pad, and whether the stick's analog range is wanted for
   anything else (the game has no use for it).
+- **Crash in the ESC menu (user report):** the game is paused while the menu is open, nothing renders,
+  and only `render()` reset the descriptor pool while each present took two sets, so the pool ran dry
+  after ~2000 presents (about 20 s) and the driver crashed on a null set. `present()` now resets the
+  pool itself. Reproduced headless (fullscreen under xfwm4, every GRAPHICS row stepped), then 95 s
+  with the menu open: 0 crashes, validation silent.
 - **Not checked:** a real fullscreen on the user's Wayland or X11 desktop, a real rotated monitor,
   the mouse mapping when turned, the pad directions in vertical mode (the game's own
   `optionRotateButtons`), and the Metal renderer, which does not turn the picture.
