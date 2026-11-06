@@ -1,5 +1,7 @@
 #include "render/window.h"
 
+#include "perf.h"
+
 #include <SDL3/SDL.h>
 
 #include <algorithm>
@@ -136,6 +138,7 @@ bool Window::open(unsigned scale, const std::string& title, bool scripted, bool 
 }
 
 void Window::render(const std::vector<uint32_t>& stream, const Hardware& hw) {
+    const perf::Clock::time_point started = perf::Clock::now();
     last_stream_ = stream;
     decoder_.reset();
     decoder_.feed(stream.data(), stream.size());
@@ -143,6 +146,10 @@ void Window::render(const std::vector<uint32_t>& stream, const Hardware& hw) {
     if (on_frame)
         on_frame(frame);
     gpu_->render(frame, hw);
+    if (perf::on()) {
+        perf::frame().render_ms += perf::ms_since(started);
+        ++perf::frame().renders;
+    }
     const uint32_t target = frame.target;
     newest_ = target;
     frames_[target] = std::move(frame);

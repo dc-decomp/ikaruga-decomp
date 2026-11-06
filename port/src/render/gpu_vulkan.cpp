@@ -20,6 +20,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "perf.h"
 #include "render/english_textures.h"
 #include "render/gpu.h"
 #include "render/texture.h"
@@ -163,6 +164,7 @@ struct CachedTexture {
     VkImageView view = VK_NULL_HANDLE;
     VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
     uint64_t hash = 0, used = 0;
+    uint64_t staged = 0;  // the upload batch whose copies are queued for it (Impl::stage_level)
     uint32_t levels = 1, width = 1, height = 1;
 };
 
@@ -298,6 +300,32 @@ struct Gpu::Impl {
     FogUniforms* fog_map = nullptr;
 
     std::unordered_map<uint64_t, CachedTexture> textures;
+
+    // The textures that a render decodes are copied into its command buffer, not one at a time: a new
+    // area brings hundreds of them, and a queue submit and wait for every mip level took tens of
+    // milliseconds. stage_level() writes a level into a staging chunk and queues its copy;
+    // flush_uploads() records them all behind two barriers, at the start of encode(). The chunks are
+    // free again once the render's fence has signaled (reset_uploads(), after wait()).
+    struct StagingChunk {
+        VkBuffer buffer = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        uint8_t* map = nullptr;
+        VkDeviceSize size = 0, used = 0;
+    };
+    struct StagedImage {
+        VkImage image;
+        VkImageLayout from;
+    };
+    struct StagedCopy {
+        VkImage image;
+        VkBuffer buffer;
+        VkDeviceSize offset;
+        uint32_t level, width, height;
+    };
+    std::vector<StagingChunk> staging_chunks;
+    std::vector<StagedImage> staged_images;
+    std::vector<StagedCopy> staged_copies;
+    uint64_t upload_batch = 1;
 
     struct Overlay {
         VkImage image = VK_NULL_HANDLE;
@@ -576,7 +604,12 @@ struct Gpu::Impl {
         info.renderPass = pass;
         info.subpass = 0;
         VkPipeline out = VK_NULL_HANDLE;
+        const perf::Clock::time_point started = perf::Clock::now();
         const VkResult r = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &info, nullptr, &out);
+        if (perf::on()) {
+            perf::frame().pipeline_ms += perf::ms_since(started);
+            ++perf::frame().pipelines;
+        }
         if (r != VK_SUCCESS)
             std::fprintf(stderr, "render: a pipeline does not build: %s\n", vk_result(r));
         return out;
@@ -671,6 +704,18 @@ struct Gpu::Impl {
 
     void upload_image(CachedTexture& t, uint32_t level, uint32_t w, uint32_t h, const std::vector<uint32_t>& pixels) {
         const VkDeviceSize bytes = static_cast<VkDeviceSize>(w) * h * 4;
+        const perf::Clock::time_point started = perf::Clock::now();
+        struct Timed {
+            const perf::Clock::time_point from;
+            VkDeviceSize bytes;
+            ~Timed() {
+                if (!perf::on())
+                    return;
+                perf::frame().upload_ms += perf::ms_since(from);
+                ++perf::frame().uploads;
+                perf::frame().bytes += bytes;
+            }
+        } timed{started, bytes};
         VkBuffer staging = VK_NULL_HANDLE;
         VkDeviceMemory staging_memory = VK_NULL_HANDLE;
         buffer(bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -692,6 +737,96 @@ struct Gpu::Impl {
         t.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         vkDestroyBuffer(device, staging, nullptr);
         vkFreeMemory(device, staging_memory, nullptr);
+    }
+
+    void stage_level(CachedTexture& t, uint32_t level, uint32_t w, uint32_t h, const std::vector<uint32_t>& pixels) {
+        const perf::Clock::time_point started = perf::Clock::now();
+        const VkDeviceSize bytes = static_cast<VkDeviceSize>(w) * h * 4;
+        StagingChunk* chunk = nullptr;
+        for (StagingChunk& c : staging_chunks)
+            if (c.size - c.used >= bytes) {
+                chunk = &c;
+                break;
+            }
+        if (!chunk) {
+            StagingChunk fresh;
+            fresh.size = std::max<VkDeviceSize>(bytes, 16u << 20);
+            buffer(fresh.size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, fresh.buffer,
+                   fresh.memory);
+            if (!fresh.buffer || !fresh.memory || vkMapMemory(device, fresh.memory, 0, VK_WHOLE_SIZE, 0,
+                                                              reinterpret_cast<void**>(&fresh.map)) != VK_SUCCESS) {
+                if (fresh.buffer) vkDestroyBuffer(device, fresh.buffer, nullptr);
+                if (fresh.memory) vkFreeMemory(device, fresh.memory, nullptr);
+                return;
+            }
+            staging_chunks.push_back(fresh);
+            chunk = &staging_chunks.back();
+        }
+        std::memcpy(chunk->map + chunk->used, pixels.data(), static_cast<size_t>(bytes));
+        staged_copies.push_back({t.image, chunk->buffer, chunk->used, level, w, h});
+        chunk->used += (bytes + 15) & ~VkDeviceSize{15};
+        if (t.staged != upload_batch) {
+            t.staged = upload_batch;
+            staged_images.push_back({t.image, t.layout});
+            t.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        }
+        if (perf::on()) {
+            perf::frame().upload_ms += perf::ms_since(started);
+            ++perf::frame().uploads;
+            perf::frame().bytes += bytes;
+        }
+    }
+
+    // Records the queued copies: every image to the transfer layout in one barrier, the copies, and
+    // every image to the shader layout in another.
+    void flush_uploads(VkCommandBuffer buffer) {
+        if (staged_images.empty())
+            return;
+        std::vector<VkImageMemoryBarrier> barriers;
+        barriers.reserve(staged_images.size());
+        for (const StagedImage& i : staged_images) {
+            VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+            b.oldLayout = i.from;
+            b.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            b.image = i.image;
+            b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, 1};
+            b.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barriers.push_back(b);
+        }
+        vkCmdPipelineBarrier(buffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr,
+                             0, nullptr, static_cast<uint32_t>(barriers.size()), barriers.data());
+        for (const StagedCopy& c : staged_copies) {
+            VkBufferImageCopy copy{};
+            copy.bufferOffset = c.offset;
+            copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, c.level, 0, 1};
+            copy.imageExtent = {c.width, c.height, 1};
+            vkCmdCopyBufferToImage(buffer, c.buffer, c.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        }
+        for (VkImageMemoryBarrier& b : barriers) {
+            b.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            b.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        }
+        vkCmdPipelineBarrier(buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr,
+                             0, nullptr, static_cast<uint32_t>(barriers.size()), barriers.data());
+        staged_images.clear();
+        staged_copies.clear();
+        ++upload_batch;
+    }
+
+    // The staging chunks are free once the render that read them has finished: call after wait().
+    void reset_uploads() {
+        for (StagingChunk& c : staging_chunks) c.used = 0;
+    }
+
+    void destroy_texture(CachedTexture& t) {
+        if (t.view) vkDestroyImageView(device, t.view, nullptr);
+        if (t.image) vkDestroyImage(device, t.image, nullptr);
+        if (t.memory) vkFreeMemory(device, t.memory, nullptr);
+        t = CachedTexture{};
     }
 
     CachedTexture& texture(const render::Draw& d, const Frame& frame, const Hardware& hw, uint64_t render,
@@ -717,11 +852,14 @@ struct Gpu::Impl {
         texture_extent(f, first, size);
         if (static_cast<size_t>(first) + size > hw.vram_size)
             return without("outside video memory");
+        const perf::Clock::time_point hashing = perf::Clock::now();
         uint64_t h = hash_bytes(hw.vram + first, size, 0);
         if (f.pixel == PixelFormat::Palette4 || f.pixel == PixelFormat::Palette8) {
             const uint32_t entries = f.pixel == PixelFormat::Palette4 ? 16 : 256;
             h = hash_bytes(reinterpret_cast<const uint8_t*>(palette + f.palette_base), entries * 4, h);
         }
+        if (perf::on())
+            perf::frame().hash_ms += perf::ms_since(hashing);
         const bool english = this->english && has_english(h);
         const uint64_t content = h;
         if (english)
@@ -741,8 +879,14 @@ struct Gpu::Impl {
         }
         t.hash = h;
         ++decoded;
+        if (perf::on())
+            ++perf::frame().decoded;
         for (uint32_t level = 0; level < f.levels(); ++level) {
-            if (!decode_texture(f, level, hw.vram, hw.vram_size, palette, texels))
+            const perf::Clock::time_point decoding = perf::Clock::now();
+            const bool decoded_level = decode_texture(f, level, hw.vram, hw.vram_size, palette, texels);
+            if (perf::on())
+                perf::frame().decode_ms += perf::ms_since(decoding);
+            if (!decoded_level)
                 break;
             const uint32_t w = std::max(1u, f.width >> level), hh = std::max(1u, f.height >> level);
             static const char* dump = std::getenv("IKARUGA_DUMP_TEXTURES");
@@ -759,7 +903,7 @@ struct Gpu::Impl {
             }
             if (english && level == 0)
                 write_english(content, w, hh, texels);
-            upload_image(t, level, w, hh, texels);
+            stage_level(t, level, w, hh, texels);
         }
         return t;
     }
@@ -1036,6 +1180,7 @@ void Gpu::Impl::encode() {
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cmd, &begin);
+    flush_uploads(cmd);
 
     // Every pixel's list starts empty, and so does each band's count.
     vkCmdFillBuffer(cmd, heads, 0, static_cast<VkDeviceSize>(width) * height * 4, 0xFFFFFFFFu);
@@ -1422,10 +1567,10 @@ Gpu::~Gpu() {
     for (auto& [key, s] : m.samplers) vkDestroySampler(m.device, s, nullptr);
     if (m.present_sampler) vkDestroySampler(m.device, m.present_sampler, nullptr);
     m.destroy_targets();
-    for (auto& [key, t] : m.textures) {
-        if (t.view) vkDestroyImageView(m.device, t.view, nullptr);
-        if (t.image) vkDestroyImage(m.device, t.image, nullptr);
-        if (t.memory) vkFreeMemory(m.device, t.memory, nullptr);
+    for (auto& [key, t] : m.textures) m.destroy_texture(t);
+    for (Impl::StagingChunk& c : m.staging_chunks) {
+        if (c.buffer) vkDestroyBuffer(m.device, c.buffer, nullptr);
+        if (c.memory) vkFreeMemory(m.device, c.memory, nullptr);
     }
     if (m.white_texture.view) vkDestroyImageView(m.device, m.white_texture.view, nullptr);
     if (m.white_texture.image) vkDestroyImage(m.device, m.white_texture.image, nullptr);
@@ -1781,6 +1926,7 @@ void Gpu::render(const Frame& frame, const Hardware& hw) {
     if (!m.device)
         return;
     m.wait();
+    m.reset_uploads();
     vkResetDescriptorPool(m.device, m.descriptor_pool, 0);
     const uint64_t render = renders + 1;
     float z = std::max(frame.max_z, frame.background_depth);
@@ -1909,8 +2055,14 @@ void Gpu::render(const Frame& frame, const Hardware& hw) {
     ++renders;
     ++m.renders_total;
     if (renders % 600 == 0)
-        for (auto it = m.textures.begin(); it != m.textures.end();)
-            it = renders > 3600 && it->second.used + 3600 < renders ? m.textures.erase(it) : std::next(it);
+        for (auto it = m.textures.begin(); it != m.textures.end();) {
+            if (renders > 3600 && it->second.used + 3600 < renders) {
+                m.destroy_texture(it->second);
+                it = m.textures.erase(it);
+            }
+            else
+                ++it;
+        }
 }
 
 void Gpu::present(const Hardware& hw, double refresh, bool white, double mark) {

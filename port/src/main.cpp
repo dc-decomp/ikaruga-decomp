@@ -29,6 +29,7 @@
 #include "frame.h"
 #include "game_tweaks.h"
 #include "hw.h"
+#include "perf.h"
 #include "render/activity.h"
 #include "render/audio.h"
 #include "render/settings.h"
@@ -623,8 +624,33 @@ int main(int argc, char** argv) {
     const bool autoplay = std::getenv("IKARUGA_AUTOPLAY") != nullptr;
     bool autoplay_in_stage = false;
     const render::Tweaks env_tweaks = tweaks::from_environment();
+    // IKARUGA_PERF: the time from the end of the last frame hook to the start of this one is the game's
+    // own code and its render, which the counters in perf.h split. A frame that took longer than
+    // 10 ms there is printed, with the hook's own time (the picture, the pacing's sleep excluded).
+    perf::Clock::time_point perf_hook_end = perf::Clock::now();
+    uint64_t perf_sectors = 0;
     hw::on_vblank([&] {
         const uint64_t frame = hw::frames();
+        const perf::Clock::time_point perf_hook_start = perf::Clock::now();
+        if (perf::on()) {
+            const double guest_ms = std::chrono::duration<double, std::milli>(perf_hook_start - perf_hook_end).count();
+            perf::Frame& f = perf::frame();
+            const uint64_t sectors = hw::stats().gd_sectors - perf_sectors;
+            perf_sectors = hw::stats().gd_sectors;
+            if (guest_ms > 10.0)
+                std::fprintf(stderr,
+                             "perf: frame %llu took %.1f ms: render %.1f (decode %.1f, upload %.1f, hash %.1f; "
+                             "%llu textures, %llu uploads, %.1f MB; %llu pipelines %.1f ms), other %.1f, %llu disc sectors\n",
+                             static_cast<unsigned long long>(frame), guest_ms, f.render_ms, f.decode_ms, f.upload_ms,
+                             f.hash_ms, static_cast<unsigned long long>(f.decoded),
+                             static_cast<unsigned long long>(f.uploads), static_cast<double>(f.bytes) / 1048576.0,
+                             static_cast<unsigned long long>(f.pipelines), f.pipeline_ms, guest_ms - f.render_ms, static_cast<unsigned long long>(sectors));
+            f = perf::Frame{};
+        }
+        struct HookEnd {
+            perf::Clock::time_point& at;
+            ~HookEnd() { at = perf::Clock::now(); }
+        } hook_end{perf_hook_end};
         if (!dump_dir.empty() && std::find(dump_frames.begin(), dump_frames.end(), frame) != dump_frames.end()) {
             const std::string path = dump_dir + "/ram-" + std::to_string(frame) + ".bin";
             if (std::FILE* f = std::fopen(path.c_str(), "wb")) {

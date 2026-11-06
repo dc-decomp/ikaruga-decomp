@@ -35,7 +35,9 @@ Output is under `/tmp/ikaruga-headless-$USER-91/out`. `DISPLAY_NUM=92` is free f
   `Aborted`, `Segmentation fault` and `Assertion`.
 - Real-pad line: `input: opened gamepad`.
 - Default key script: repeated Return, because the first boot has a cold shader cache.
-- Perf: `IKARUGA_PACING=1` prints the frame-pacing summary at shutdown.
+- Perf: `IKARUGA_PACING=1` prints the frame-pacing summary at shutdown. `IKARUGA_PERF=1` prints each frame
+  that took over 10 ms and where the time went (render, texture decode and upload, pipelines, disc); run
+  it with `IKARUGA_AUTOPLAY=1` to pass through the game's loads.
 
 ## Fullscreen and a rotated screen
 
