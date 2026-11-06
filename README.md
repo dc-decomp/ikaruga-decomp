@@ -196,6 +196,18 @@ and bundles the C++ runtime as well as SDL3. The launcher keeps its settings and
 files in the per-user data folder, so the AppImage can run from anywhere and the user supplies the
 disc. If FUSE is unavailable, run it with `APPIMAGE_EXTRACT_AND_RUN=1`.
 
+The AppImage does not bundle libc, so it needs at least the glibc it was built with. An AppImage
+built on a current distribution can fail to start on an older one, such as SteamOS, with
+`version 'GLIBC_x.y' not found`. For one that runs on older systems, build it in an Ubuntu 24.04
+container (needs podman or docker):
+
+```sh
+tools/linux/build_appimage_compat.sh
+```
+
+It writes `build-compat/Ikaruga-x86_64.AppImage`, which needs glibc 2.38 or later, and leaves
+`build-port` alone.
+
 ## Playing
 
 Start `build-port/ikaruga-launcher` (or the AppImage) and choose your disc there. On macOS start
