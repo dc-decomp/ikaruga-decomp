@@ -1,5 +1,6 @@
 // A picture scaled or averaged into the drawable, and the overlay blended over it. A pass over a
-// picture: taps along each axis, `step` apart in the source's coordinates.
+// picture: taps along each axis, `step` apart in the source's coordinates. `strength` is here the
+// picture's turn: 0 none, 1 a quarter turn counter-clockwise, 2 a quarter turn clockwise (tate).
 #version 450
 
 layout(push_constant) uniform Pass {
@@ -24,5 +25,13 @@ vec4 mean(vec2 uv) {
 }
 
 void main() {
-    out_colour = mean(v_uv);
+    // A turned picture: the drawable's (u, v), from its top left, reads the picture at (s, t).
+    //   counter-clockwise: the picture's right edge goes to the top, so (s, t) = (1 - v, u)
+    //   clockwise:         its left edge goes to the top, so (s, t) = (v, 1 - u)
+    vec2 uv = v_uv;
+    if (p.strength > 1.5)
+        uv = vec2(v_uv.y, 1.0 - v_uv.x);
+    else if (p.strength > 0.5)
+        uv = vec2(1.0 - v_uv.y, v_uv.x);
+    out_colour = mean(uv);
 }

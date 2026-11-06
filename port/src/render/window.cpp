@@ -93,6 +93,23 @@ bool Window::open(unsigned scale, const std::string& title, bool scripted, bool 
         tweaks_ = Tweaks::parse(read_settings(tweaks_path_));
     if (scale)
         graphics_.scale = scale;
+    if (start_tate_ >= 0)
+        graphics_.tate = static_cast<unsigned>(start_tate_);
+    if (start_fullscreen_)
+        graphics_.fullscreen = true;
+    // A monitor stood on its side asked for: the window opens as tall as it is wide.
+    if (graphics_.tate == Graphics::kTateLeft || graphics_.tate == Graphics::kTateRight)
+        SDL_SetWindowSize(window_, 720, 960);
+    // Fullscreen before the renderer makes its swapchain, so that the swapchain is made once, at the
+    // size it keeps. The window system may take a moment: the events then report the change.
+    if (graphics_.fullscreen) {
+        if (SDL_SetWindowFullscreen(window_, true)) {
+            fullscreen_ = true;
+            SDL_SyncWindow(window_);
+        }
+        else
+            std::fprintf(stderr, "fullscreen: %s\n", SDL_GetError());
+    }
     if (!gpu_->create(window_, graphics_.scale, error))
         return false;
     gpu_->set_anisotropy(graphics_.anisotropy);
@@ -349,6 +366,7 @@ bool Window::present(const Hardware& hw, double guest_seconds) {
     }
     gpu_->set_bloom(g.bloom);
     gpu_->set_hud(g.hud);
+    choose_rotation();
     if (g.fullscreen != fullscreen_) {
         fullscreen_ = g.fullscreen;
         SDL_SetWindowFullscreen(window_, fullscreen_);
@@ -375,6 +393,26 @@ bool Window::present(const Hardware& hw, double guest_seconds) {
     return true;
 }
 
+// The turn that the picture gets in the window, from the TATE setting, whether the game is on its
+// vertical screen, and the window's shape.
+void Window::choose_rotation() {
+    const Graphics& g = menu_.is_open() ? menu_.graphics() : graphics_;
+    // The game's memory holds 0 for its first frames, before it sets its options.
+    const bool vertical = presents_ > 60 && vertical_screen && vertical_screen();
+    int pw = 0, ph = 0;
+    SDL_GetWindowSizeInPixels(window_, &pw, &ph);
+    unsigned turn = 0;
+    if (vertical)
+        switch (g.tate) {
+            case Graphics::kTateAuto: turn = ph > pw ? 1 : 0; break;
+            case Graphics::kTateLeft: turn = 1; break;
+            case Graphics::kTateRight: turn = 2; break;
+            default: break;
+        }
+    rotation_ = turn;
+    gpu_->set_rotation(turn);
+}
+
 bool Window::mouse(float& dx, float& dy, uint16_t& buttons) {
     const bool steer = input_.bindings.mouse && input_.on_keyboard(0) && !menu_.is_open() && !scripted_;
     if (steer != relative_) {
@@ -391,16 +429,30 @@ bool Window::mouse(float& dx, float& dy, uint16_t& buttons) {
     SDL_GetWindowSizeInPixels(window_, &pw, &ph);
     if (pw <= 0 || ph <= 0)
         return false;
-    // The 4:3 picture in the middle of the window, as Gpu::present() places it, so the ship moves as
-    // far as the pointer would.
+    // The picture in the middle of the window, as Gpu::present() places it, so the ship moves as far
+    // as the pointer would: 4:3, or 3:4 when it is turned. A turned picture's x and y are the
+    // window's y and x.
     const float d = SDL_GetWindowPixelDensity(window_);
-    float w = static_cast<float>(pw), h = w * 3 / 4;
+    const bool turned = rotation_ != 0;
+    float w = static_cast<float>(pw), h = turned ? w * 4 / 3 : w * 3 / 4;
     if (h > static_cast<float>(ph)) {
         h = static_cast<float>(ph);
-        w = h * 4 / 3;
+        w = turned ? h * 3 / 4 : h * 4 / 3;
     }
-    dx = rx * d / w * 640;
-    dy = ry * d / h * 480;
+    rx *= d;
+    ry *= d;
+    if (!turned) {
+        dx = rx / w * 640;
+        dy = ry / h * 480;
+    }
+    else if (rotation_ == 1) {  // counter-clockwise: the window's right is the picture's down
+        dx = -ry / h * 640;
+        dy = rx / w * 480;
+    }
+    else {
+        dx = ry / h * 640;
+        dy = -rx / w * 480;
+    }
     buttons = static_cast<uint16_t>((held & SDL_BUTTON_LMASK ? 1u << 2 : 0) | (held & SDL_BUTTON_RMASK ? 1u << 1 : 0) |
                                     (held & SDL_BUTTON_MMASK ? 1u << 10 : 0));
     return true;

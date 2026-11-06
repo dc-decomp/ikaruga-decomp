@@ -88,6 +88,10 @@ void usage() {
                  "  --window          open a window: picture, sound, keyboard and gamepad, at the\n"
                  "                    console's speed\n"
                  "  --unthrottled     with --window, run as fast as possible\n"
+                 "  --fullscreen      with --window, start in fullscreen (the menu's FULLSCREEN row too)\n"
+                 "  --tate MODE       with --window, how the picture turns for a monitor stood on its side:\n"
+                 "                    auto (a window taller than wide turns it), off, left or right. It turns\n"
+                 "                    only while the game is on its VERTICAL SCREEN option\n"
                  "  --scale N         draw at N times 640x480 (default: the menu's GRAPHICS page, 2 at\n"
                  "                    first)\n"
                  "  --screenshot-at LIST write the frames drawn at these frames (300,800) to --screenshot-path\n"
@@ -151,7 +155,8 @@ int main(int argc, char** argv) {
     std::vector<uint64_t> screenshots;
     bool window = false, unthrottled = false, audio = true, gamepads = true;
     std::string wav_path;
-    int scale = 0;
+    int scale = 0, tate = -1;
+    bool fullscreen = false;
     std::string screenshot_path = "ikaruga.ppm";
     struct Press {
         uint64_t from, until;
@@ -182,6 +187,19 @@ int main(int argc, char** argv) {
         else if (a == "--window") window = true;
         else if (a == "--unthrottled") unthrottled = true;
         else if (a == "--scale") scale = std::atoi(next().c_str());
+        else if (a == "--fullscreen") fullscreen = true;
+        else if (a == "--tate") {
+            const std::string mode = next();
+            const char* const names[] = {"auto", "off", "left", "right"};
+            tate = -1;
+            for (int i = 0; i < 4; ++i)
+                if (mode == names[i])
+                    tate = i;
+            if (tate < 0) {
+                std::fprintf(stderr, "ikaruga: --tate takes auto, off, left or right\n");
+                return 2;
+            }
+        }
         else if (a == "--screenshot-at") {
             const std::string list = next();
             for (const char* p = list.c_str(); *p;) {
@@ -347,6 +365,10 @@ int main(int argc, char** argv) {
             hw::second_pad() = true;
         }
         screen = std::make_unique<render::Window>();
+        screen->start_fullscreen(fullscreen);
+        screen->start_tate(tate);
+        // screenHorizontal: 0 while the game is on its vertical screen (docs/game.md).
+        screen->vertical_screen = [] { return guest::load<uint8_t>(0x8C1CB150u) == 0; };
         if (!screen->open(static_cast<unsigned>(scale), "Ikaruga", scripted_run, gamepads, error)) {
             std::fprintf(stderr, "window: %s\n", error.c_str());
             return 2;

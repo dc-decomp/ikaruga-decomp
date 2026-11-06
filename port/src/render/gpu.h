@@ -63,6 +63,12 @@ public:
     // the window shows the last frame while the game stops.
     void set_scale(unsigned scale);
     unsigned scale() const;
+    // How present() turns the picture in the window, for a monitor stood on its side: 0 as it is, 1 a
+    // quarter turn counter-clockwise, 2 a quarter turn clockwise. The turned picture is letterboxed
+    // to 3:4. The overlay is not turned: it is drawn for the window as the player sees it. Only the
+    // Vulkan renderer turns the picture so far.
+    void set_rotation(unsigned turn) { rotation_ = turn; }
+    unsigned rotation() const { return rotation_; }
     // The bloom over the picture in the window: 0 none, 1 low, 2 high.
     void set_bloom(unsigned level);
     // The samples of the anisotropic filtering of bilinear textures, from 1 (none) to 16, for the
@@ -95,6 +101,7 @@ public:
 
 private:
     std::unique_ptr<Impl> impl_;
+    unsigned rotation_ = 0;
 };
 
 }  // namespace render

@@ -34,6 +34,8 @@ public:
     const Graphics& graphics() const { return graphics_; }
     // The window's own fullscreen state, which its green button and Control-Command-F change too.
     void set_fullscreen(bool on) { graphics_.fullscreen = on; }
+    // The settings a command line overrode, so the menu starts from them.
+    void set_graphics(const Graphics& g) { graphics_ = g; }
     const Tweaks& tweaks() const { return tweaks_; }
     bool bindings_changed() const { return bindings_changed_; }
     bool graphics_changed() const { return graphics_changed_; }
@@ -50,9 +52,9 @@ private:
                          kRamp = kDeadzone + 1, kMouseOrPad = kRamp + 1, kDone = kMouseOrPad + 1,
                          kControllerRows = kDone + 1;
     // The graphics page's rows: the resolution, the bloom, the anisotropic filtering, fullscreen,
-    // vsync, Metal's HUD, and BACK.
-    static constexpr int kScale = 0, kBloom = 1, kAnisotropy = 2, kFullscreen = 3, kVsync = 4, kHud = 5,
-                         kGraphicsBack = 6, kGraphicsRows = 7;
+    // the monitor's rotation (tate), vsync, Metal's HUD, and BACK.
+    static constexpr int kScale = 0, kBloom = 1, kAnisotropy = 2, kFullscreen = 3, kTate = 4, kVsync = 5,
+                         kHud = 6, kGraphicsBack = 7, kGraphicsRows = 8;
     // The tweaks page's rows: one for each switch (kTweakRows in menu.cpp), and BACK.
     static constexpr int kTweaksBack = 8, kTweaksRows = 9;
 

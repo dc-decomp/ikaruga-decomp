@@ -9,7 +9,7 @@
 #      PIN=2-5         taskset CPU list
 #      EXTRA="--a=b"   app flags, replacing the conf's EXTRA (the safety flags are always added)
 #      RUN_ENV="A=1"   extra environment variables for the game
-#      DISPLAY_NUM, BUILD_DIR, RUN_DIR, OUT_DIR, CONF
+#      DISPLAY_NUM, BUILD_DIR, RUN_DIR, OUT_DIR, CONF, SCREEN (WxHxD), WM (a window manager to run)
 #      ALLOW_USER_GAME=1  run even though a copy of the game outside a headless run dir is running
 #
 # Project settings live in headless.conf next to this script (see docs/headless.md §3).
@@ -105,6 +105,10 @@ for run in $(seq 1 "$RUNS"); do
   id="${TAG}_$run"
   Xvfb "$X" -screen 0 "${SCREEN:-1920x1080x24}" -nolisten tcp >/dev/null 2>&1 & XPID=$!
   for _ in $(seq 1 50); do [ -e "/tmp/.X11-unix/X$DISPLAY_NUM" ] && break; sleep 0.1; done
+  # WM=xfwm4 runs a window manager on the private display, which fullscreen needs to behave as on a
+  # desktop. SCREEN=1080x1920x24 makes the screen portrait, like a monitor stood on its side. The WM
+  # ends with the display.
+  [ -n "${WM:-}" ] && { DISPLAY="$X" "$WM" >/dev/null 2>&1 & sleep 1; }
 
   LAUNCH=("./$GAME"); [ "${GDB:-0}" = 1 ] && LAUNCH=(gdb -q -batch -x crash.gdb --args "./$GAME")
   [ -n "${PIN:-}" ] && LAUNCH=(taskset -c "$PIN" "${LAUNCH[@]}")

@@ -218,7 +218,9 @@ Game Mode.
 ### Controls and the menu
 
 The arrow keys are the stick. Z shoots, X switches polarity, A releases the homing lasers and
-Return is Start. A gamepad works by button position. Escape, F1 or a gamepad's back button opens
+Return is Start. A gamepad works by button position, and its left stick moves the ship and the menu's cursor like the
+D-pad: the game reads only the direction buttons, so a stick pushed past its dead zone and a quarter
+of the way on presses its direction (the CONTROLLER page's DEAD ZONE sets the zone). Escape, F1 or a gamepad's back button opens
 the menu, and the game stops while it is open. The mouse works in the menu too.
 
 The menu's CONTROLLER page sets the keys and the gamepad of each of two players. Player 1 takes the
@@ -243,7 +245,8 @@ The GRAPHICS page changes only the picture. Its settings go to `graphics.txt`:
 | RESOLUTION | The size that the game is drawn at, from 1X (640x480) to 6X (3840x2880). The window averages a larger picture over each of its pixels, which smooths the edges as supersampling does. The page shows the size of the picture in the window. `--scale N` sets the resolution for one run. |
 | BLOOM | OFF, LOW or HIGH. The brightest parts of the picture glow. F12's screenshots show the glow. |
 | ANISOTROPIC FILTERING | OFF or 2X to 16X. Textures seen at a slant stay sharper. The camera looks at the stages almost straight on, so the picture changes little: at 16X, 0.5% of the pixels or fewer in the test frames. |
-| FULLSCREEN | ON or OFF. The window's green button and Control-Command-F change it too. |
+| FULLSCREEN | ON or OFF. The window's green button and Control-Command-F change it too. `--fullscreen` starts one run in fullscreen, and so does the launcher's Fullscreen box. |
+| TATE (ROTATED MONITOR) | AUTO, OFF, LEFT or RIGHT: how the picture turns for a monitor stood on its side. See [Tate](#tate-a-rotated-monitor). |
 | VSYNC | OFF or ON, OFF at first. Off works only in fullscreen: the window server then shows each picture at once, without waiting for the display's refresh. That takes about 21 ms off the latency, and the picture can tear: a horizontal line where two pictures meet, for one refresh. At 120 Hz the two pictures differ by one frame of scrolling, and the line is hard to see. In a window the window server waits for the refresh anyway. |
 | METAL HUD | ON or OFF. Metal's performance HUD in a corner of the window: the frame rate, the frame times and the GPU's time. |
 
@@ -258,6 +261,31 @@ sound's queue when it ran dry, and a queue that the catch-up filled to its limit
 usual length. At other refresh rates, and while the window is covered or the menu is open, the
 game paces itself by its own clock, and some frames stay on the screen longer than others.
 Fullscreen is smoother than a window ([Performance](#performance)).
+
+### Tate: a rotated monitor
+
+Ikaruga is an upright arcade game. The Dreamcast version has a VERTICAL SCREEN option in its
+options that draws the whole picture, menus included, sideways in the 640x480 frame, for a
+television that its player turned a quarter. A monitor stood on its side needs the port to turn the
+picture back:
+
+1. Turn the monitor in the desktop's display settings (Linux: Settings, Displays, Orientation:
+   Portrait left or right; Windows: Display settings, Display orientation), so that the window is
+   taller than wide.
+2. In the game's options, set the screen to VERTICAL. If the stick must move the ship along the
+   picture instead of along the television, set the game's own button-turning option as well.
+3. Leave TATE on AUTO. The picture then turns a quarter counter-clockwise as soon as the window is
+   taller than wide and the game is on its vertical screen, and it fills the monitor's width, upright.
+
+LEFT and RIGHT turn the picture whatever the window's shape, counter-clockwise or clockwise, for a
+monitor turned the other way or a picture the wrong way up. OFF never turns it. `--tate
+auto|off|left|right` sets the choice for one run, and the launcher's Rotated monitor box does too.
+With LEFT or RIGHT the window opens upright (720x960). The menu and the frame counter are not
+turned: they are drawn for the window as you see it. The mouse follows the turn.
+
+The turn is made by the Vulkan renderer (Linux and Windows). The Metal renderer does not turn the
+picture yet. On a monitor stood on its side the game in its normal HORIZONTAL screen shows
+its 4:3 picture across the monitor's width with bars above and below, as it would on any display.
 
 ### Mods and tweaks
 

@@ -194,6 +194,33 @@ Still open in B (done: B1 tail, validation, warning, B6 except fullscreen, B7 on
   the repository root, or delete it; it is a 4 MB transcript, not documentation.
 - G3. Update `docs/headless.md` with the display-lock tip.
 
+### Phase H: fullscreen and tate (user report, 2026-11-05)
+
+The user reported that a fullscreen launch does not start the game, that windowed play is fine, and that
+rotated ("tate") monitors must be supported.
+
+- **Cause of the fullscreen report (found, not reproduced as a crash):** the launcher's only
+  fullscreen-like control was the WINDOWED box, and unticking it dropped `--window`, so the game ran
+  scripted with no window at all. The in-game FULLSCREEN row also toggled only after the swapchain
+  existed. Fixed: the launcher always passes `--window` and has a Fullscreen box (`--fullscreen`); a
+  fullscreen request (flag or `graphics.txt`) is applied before the Vulkan swapchain is made.
+- **Tate:** the game's VERTICAL SCREEN option (`screenHorizontal` 0 at 0x8C1CB150) draws everything,
+  menus included, sideways in 640x480. New setting `tate = auto|off|left|right` (GRAPHICS page row,
+  `--tate`, launcher box). The present pass turns the picture a quarter (push constant `strength` in
+  `present.frag`), 3:4 box, mouse deltas follow. Auto turns only when the window is taller than wide.
+- **Checked headless (private Xvfb):** `--tate left` forced: upright, sharp; `--fullscreen` on a
+  plain display and under xfwm4 on a portrait 1080x1920 screen with Auto: upright, fills the width,
+  0 crashes, Vulkan validation silent. Windows build compiles.
+- **Analog stick (user report, same day):** the game never reads the stick's position, only the
+  direction buttons, and the port never turned the left stick into those buttons, so a stick did
+  nothing. `Input::controls` now presses the direction past the dead zone plus a quarter of the
+  rest. Checked with an SDL software gamepad (no real pad): off at 4000, on at 12000+, diagonals.
+  Not checked: the feel on a real pad, and whether the stick's analog range is wanted for
+  anything else (the game has no use for it).
+- **Not checked:** a real fullscreen on the user's Wayland or X11 desktop, a real rotated monitor,
+  the mouse mapping when turned, the pad directions in vertical mode (the game's own
+  `optionRotateButtons`), and the Metal renderer, which does not turn the picture.
+
 ## 5. Order and risk
 
 Do A, then B. Nothing else is worth polishing until the picture is right. The main risk is B2:

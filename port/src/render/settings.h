@@ -19,6 +19,7 @@
 //   bloom = 0
 //   anisotropy = 1
 //   fullscreen = 0
+//   tate = auto
 //   vsync = 0
 //   hud = 0
 #pragma once
@@ -49,6 +50,15 @@ struct Graphics {
     unsigned bloom = 0;       // 0 off, 1 low, 2 high
     unsigned anisotropy = 1;  // the samples of the anisotropic filtering: 1 (off), 2, 4, 8 or 16
     bool fullscreen = false;
+    // How the picture turns for a monitor stood on its side ("tate"). The game's VERTICAL SCREEN
+    // option draws the play area sideways in the 640x480 frame, as the Dreamcast's players turned
+    // their television to read it. The picture turns back only when the game is on that option.
+    //   Auto   a window that is taller than wide (a rotated monitor) turns it; else it stays
+    //   Off    never
+    //   Left   always, a quarter turn counter-clockwise, which makes the sideways play area upright
+    //   Right  always, a quarter turn clockwise, for a picture drawn the other way up
+    enum Tate : unsigned { kTateAuto, kTateOff, kTateLeft, kTateRight, kTateCount };
+    unsigned tate = kTateAuto;
     bool vsync = false;  // off: in fullscreen, each picture goes to the screen at once, which can tear
     bool hud = false;    // Metal's performance HUD: the frame rate, the frame times and the GPU's time
 

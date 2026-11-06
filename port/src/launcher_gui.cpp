@@ -73,7 +73,8 @@ struct Gui {
 
     int scale = 0;
     int frames = 0;
-    bool windowed = true;
+    int tate = 0;  // 0 the game's own setting, else 1 auto, 2 off, 3 left, 4 right (--tate)
+    bool fullscreen = false;
     bool unthrottled = false;
     bool audio = true;
     bool gamepads = true;
@@ -247,7 +248,8 @@ void load_settings(Gui& gui) {
         else if (key == "extra") set(gui.extra);
         else if (key == "scale") gui.scale = std::max(0, std::min(6, std::atoi(value.c_str())));
         else if (key == "frames") gui.frames = std::max(0, std::atoi(value.c_str()));
-        else if (key == "windowed") gui.windowed = value == "1";
+        else if (key == "fullscreen") gui.fullscreen = value == "1";
+        else if (key == "tate") gui.tate = std::max(0, std::min(4, std::atoi(value.c_str())));
         else if (key == "unthrottled") gui.unthrottled = value == "1";
         else if (key == "audio") gui.audio = value == "1";
         else if (key == "gamepads") gui.gamepads = value == "1";
@@ -281,7 +283,8 @@ void save_settings(const Gui& gui) {
     write("extra", gui.extra);
     out << "scale=" << gui.scale << '\n'
         << "frames=" << gui.frames << '\n'
-        << "windowed=" << (gui.windowed ? 1 : 0) << '\n'
+        << "fullscreen=" << (gui.fullscreen ? 1 : 0) << '\n'
+        << "tate=" << gui.tate << '\n'
         << "unthrottled=" << (gui.unthrottled ? 1 : 0) << '\n'
         << "audio=" << (gui.audio ? 1 : 0) << '\n'
         << "gamepads=" << (gui.gamepads ? 1 : 0) << '\n'
@@ -418,10 +421,11 @@ struct Job {
     fs::path prepared;
     bool extract = true;
     bool rebuild = false;
-    bool windowed = true;
+    bool fullscreen = false;
     bool unthrottled = false;
     bool audio = true;
     bool gamepads = true;
+    int tate = 0;
     int scale = 0;
     int frames = 0;
     std::string bios;
@@ -465,8 +469,14 @@ void run_job(Gui& gui, Job job) {
         }
 
         std::vector<std::string> args = {game.string(), "--disc", prepared.gdi.string()};
-        if (job.windowed)
-            args.emplace_back("--window");
+        // The game always gets a window: without --window it runs scripted, with nothing to see.
+        args.emplace_back("--window");
+        if (job.fullscreen)
+            args.emplace_back("--fullscreen");
+        if (job.tate > 0) {
+            static const char* const kTate[] = {"auto", "off", "left", "right"};
+            append(args, "--tate", kTate[std::min(job.tate, 4) - 1]);
+        }
         if (job.unthrottled)
             args.emplace_back("--unthrottled");
         if (job.scale > 0)
@@ -570,7 +580,8 @@ void start_launch(Gui& gui) {
     job.prepared = path_of(gui.prepared);
     job.extract = gui.extract;
     job.rebuild = gui.rebuild;
-    job.windowed = gui.windowed;
+    job.fullscreen = gui.fullscreen;
+    job.tate = gui.tate;
     job.unthrottled = gui.unthrottled;
     job.audio = gui.audio;
     job.gamepads = gui.gamepads;
@@ -669,7 +680,7 @@ void draw_ui(Gui& gui) {
     ImGui::SetNextItemWidth(260);
     ImGui::Combo("Resolution", &gui.scale, scales, 7);
     ImGui::SameLine();
-    ImGui::Checkbox("Windowed", &gui.windowed);
+    ImGui::Checkbox("Fullscreen", &gui.fullscreen);
     ImGui::SameLine();
     ImGui::Checkbox("Unthrottled", &gui.unthrottled);
     ImGui::Checkbox("Audio", &gui.audio);
@@ -681,7 +692,12 @@ void draw_ui(Gui& gui) {
     ImGui::BeginDisabled(kind != "CHD");
     ImGui::Checkbox("Rebuild CHD cache", &gui.rebuild);
     ImGui::EndDisabled();
-    ImGui::TextDisabled("Windowed gives the game a window; unthrottled runs it as fast as the machine can.");
+    const char* tates[] = {"Tate: the game's setting", "Tate: auto (a portrait window)", "Tate: off",
+                           "Tate: rotate left", "Tate: rotate right"};
+    ImGui::SetNextItemWidth(260);
+    ImGui::Combo("Rotated monitor", &gui.tate, tates, 5);
+    ImGui::TextDisabled("Fullscreen starts the game full screen; unthrottled runs it as fast as the machine can.");
+    ImGui::TextDisabled("Tate turns the picture for a monitor stood on its side, while the game's VERTICAL SCREEN option is on.");
 
     ImGui::Spacing();
     ImGui::SeparatorText("DATA");

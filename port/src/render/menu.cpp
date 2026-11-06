@@ -207,12 +207,14 @@ Menu::Result Menu::graphics_key(Key k) {
     }
     else if (row_ == kFullscreen)
         graphics_.fullscreen = !graphics_.fullscreen;
+    else if (row_ == kTate)
+        graphics_.tate = stepped(graphics_.tate, 0, Graphics::kTateCount - 1, k);
     else if (row_ == kVsync)
         graphics_.vsync = !graphics_.vsync;
     else if (row_ == kHud)
         graphics_.hud = !graphics_.hud;
     graphics_changed_ |= graphics_.scale != before.scale || graphics_.bloom != before.bloom ||
-                         graphics_.anisotropy != before.anisotropy || graphics_.fullscreen != before.fullscreen ||
+                         graphics_.anisotropy != before.anisotropy || graphics_.fullscreen != before.fullscreen || graphics_.tate != before.tate ||
                          graphics_.vsync != before.vsync || graphics_.hud != before.hud;
     return Result::Stay;
 }
@@ -336,6 +338,12 @@ void Menu::draw(Overlay& o, uint32_t width, uint32_t height) const {
         else if (graphics && r == kFullscreen) {
             label = "FULLSCREEN";
             value = on_off(graphics_.fullscreen);
+        }
+        else if (graphics && r == kTate) {
+            static const char* const kTateNames[Graphics::kTateCount] = {"< AUTO >", "< OFF >", "< LEFT >",
+                                                                         "< RIGHT >"};
+            label = "TATE (ROTATED MONITOR)";
+            value = kTateNames[graphics_.tate];
         }
         else if (graphics && r == kVsync) {
             label = "VSYNC";

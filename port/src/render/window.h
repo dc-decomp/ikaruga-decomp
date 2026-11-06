@@ -43,6 +43,15 @@ public:
     // settings do not change a check.
     // A `scale` other than 0 replaces the GRAPHICS page's.
     bool open(unsigned scale, const std::string& title, bool scripted, bool gamepads, std::string& error);
+    // Command-line choices that replace the GRAPHICS page's for this run, before open(): start in
+    // fullscreen, and the TATE setting (Graphics::Tate, or -1 to leave it). They are not saved
+    // unless the menu then changes the page.
+    void start_fullscreen(bool on) { start_fullscreen_ = on; }
+    void start_tate(int tate) { start_tate_ = tate; }
+    // True while the game is on its VERTICAL SCREEN option, which draws everything sideways for a
+    // television turned a quarter. Set by main.cpp, which reads the game's memory. The window turns
+    // the picture back for a monitor stood on its side (Graphics::tate).
+    std::function<bool()> vertical_screen;
     void render(const std::vector<uint32_t>& stream, const Hardware& hw);
     // Called with each frame between its translation and its drawing (draw.h), where a mod can read
     // and change the frame's draws and settings.
@@ -104,6 +113,10 @@ private:
     uint32_t newest_ = 0;                // the framebuffer of the last frame
     bool closed_ = false, show_rate_ = false, scripted_ = false, gamepads_ = true;
     bool fullscreen_ = false;  // asked for, or reported by the window
+    bool start_fullscreen_ = false;
+    int start_tate_ = -1;
+    unsigned rotation_ = 0;    // how the last present turned the picture (Gpu::set_rotation)
+    void choose_rotation();
     bool relative_ = false;    // the mouse steers (mouse())
     // Pacing (pace()): the refresh that the next present asks for, how long before it a frame
     // starts, when the last frame started, how far late frames have put the run behind, whether the

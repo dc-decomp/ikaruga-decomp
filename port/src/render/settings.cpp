@@ -74,6 +74,10 @@ Tweaks Tweaks::either(const Tweaks& other) const {
     return t;
 }
 
+namespace {
+const char* const kTateNames[Graphics::kTateCount] = {"auto", "off", "left", "right"};
+}
+
 Graphics Graphics::parse(const std::string& text) {
     Graphics g;
     for (const auto& [key, value] : lines_of(text)) {
@@ -87,6 +91,11 @@ Graphics Graphics::parse(const std::string& text) {
         }
         else if (key == "fullscreen")
             g.fullscreen = value == "1";
+        else if (key == "tate") {
+            for (unsigned i = 0; i < kTateCount; ++i)
+                if (value == kTateNames[i])
+                    g.tate = i;
+        }
         else if (key == "vsync")
             g.vsync = value == "1";
         else if (key == "hud")
@@ -97,7 +106,8 @@ Graphics Graphics::parse(const std::string& text) {
 
 std::string Graphics::text() const {
     return "scale = " + std::to_string(scale) + "\nbloom = " + std::to_string(bloom) + "\nanisotropy = " +
-           std::to_string(anisotropy) + "\nfullscreen = " + (fullscreen ? "1" : "0") + "\nvsync = " + (vsync ? "1" : "0") +
+           std::to_string(anisotropy) + "\nfullscreen = " + (fullscreen ? "1" : "0") + "\ntate = " +
+           kTateNames[tate < kTateCount ? tate : 0] + "\nvsync = " + (vsync ? "1" : "0") +
            "\nhud = " + (hud ? "1" : "0") + "\n";
 }
 

@@ -37,6 +37,20 @@ Output is under `/tmp/ikaruga-headless-$USER-91/out`. `DISPLAY_NUM=92` is free f
 - Default key script: repeated Return, because the first boot has a cold shader cache.
 - Perf: `IKARUGA_PACING=1` prints the frame-pacing summary at shutdown.
 
+## Fullscreen and a rotated screen
+
+`WM=xfwm4` runs a window manager on the private display, which fullscreen needs to behave as on a
+desktop, and `SCREEN=1080x1920x24 SHOT_SIZE=540x960` makes the display portrait, like a monitor
+stood on its side. `IKARUGA_POKE=0x8c1cd768=0,0x8c1cb150=0` puts the game on its VERTICAL SCREEN
+option (the option and the game's copy of it) without the menu. With `--fullscreen` and
+`--tate auto` the picture then fills the portrait screen upright.
+
+```sh
+SCREEN=1080x1920x24 SHOT_SIZE=540x960 WM=xfwm4 DISPLAY_NUM=93 \
+  EXTRA="--window --disc $PWD/game/disc/disc.gdi --saves /tmp/s --scale 2 --fullscreen" \
+  RUN_ENV="IKARUGA_AUTOPLAY=1 IKARUGA_POKE=0x8c1cd768=0,0x8c1cb150=0" tools/linux/headless_run.sh tate 70
+```
+
 ## Render comparison
 
 ```sh

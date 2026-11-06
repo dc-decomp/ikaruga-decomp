@@ -1962,13 +1962,18 @@ void Gpu::present(const Hardware& hw, double refresh, bool white, double mark) {
         const VkImageView input = bloom_ready ? m.shown_view : it->second.view;
         VkDescriptorSet set = m.descriptor(m.present_layout);
         m.write_image(set, 0, input, m.present_sampler);
-        double w = m.swap_extent.width, h = w * 3.0 / 4.0;
+        // The picture's box in the window: 4:3, or 3:4 turned a quarter. w and h are the box's size
+        // in the window; `across` and `down` are the picture's width and height in window pixels.
+        const bool turned = rotation_ == 1 || rotation_ == 2;
+        double w = m.swap_extent.width, h = turned ? w * 4.0 / 3.0 : w * 3.0 / 4.0;
         if (h > m.swap_extent.height) {
             h = m.swap_extent.height;
-            w = h * 4.0 / 3.0;
+            w = turned ? h * 3.0 / 4.0 : h * 4.0 / 3.0;
         }
-        const int taps = std::clamp(static_cast<int>(std::ceil(static_cast<double>(m.height) / h - 0.01)), 1, 8);
-        const Pass p{{static_cast<float>(1.0 / (w * taps)), static_cast<float>(1.0 / (h * taps))}, taps, 0};
+        const double across = turned ? h : w, down = turned ? w : h;
+        const int taps = std::clamp(static_cast<int>(std::ceil(static_cast<double>(m.height) / down - 0.01)), 1, 8);
+        const Pass p{{static_cast<float>(1.0 / (across * taps)), static_cast<float>(1.0 / (down * taps))}, taps,
+                     turned ? static_cast<float>(rotation_) : 0.0f};
         VkViewport viewport = metal_viewport(static_cast<float>((m.swap_extent.width - w) / 2),
                                              static_cast<float>((m.swap_extent.height - h) / 2),
                                              static_cast<float>(w), static_cast<float>(h));
